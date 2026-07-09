@@ -42,14 +42,14 @@ echo "Starting backend on http://localhost:8000"
 (cd "$BACKEND_DIR" && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000) &
 BACKEND_PID=$!
 
-echo "Starting frontend on http://localhost:3000"
+echo "Starting frontend on http://localhost:5000"
 (cd "$FRONTEND_DIR" && npm run dev) &
 FRONTEND_PID=$!
 
 echo ""
 echo "Services are running:"
 echo "- Backend:  http://localhost:8000"
-echo "- Frontend: http://localhost:3000"
+echo "- Frontend: http://localhost:5000"
 echo ""
 echo "Press Ctrl+C to stop."
 
