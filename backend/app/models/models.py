@@ -96,6 +96,56 @@ class ImportBatch(Base):
     records = Column(Integer, default=0)
     status = Column(String(20), default="UPLOADED")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    file_receipts = relationship("FileReceipt", back_populates="import_batch")
+
+
+class ReconPair(Base):
+    __tablename__ = "recon_pairs"
+    id = Column(Integer, primary_key=True, index=True)
+    pair_code = Column(String(80), unique=True, nullable=False, index=True)
+    pair_name = Column(String(160), nullable=False)
+    category = Column(String(30), nullable=False)
+    product = Column(String(80), default="pulsa")
+    source_a = Column(String(80), nullable=False)
+    source_b = Column(String(80), nullable=False)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    expected_files = relationship("ExpectedFile", back_populates="recon_pair", cascade="all, delete-orphan")
+    file_receipts = relationship("FileReceipt", back_populates="recon_pair")
+
+
+class ExpectedFile(Base):
+    __tablename__ = "expected_files"
+    id = Column(Integer, primary_key=True, index=True)
+    recon_pair_id = Column(Integer, ForeignKey("recon_pairs.id"), nullable=False, index=True)
+    file_type = Column(String(80), nullable=False)
+    source = Column(String(80), nullable=False)
+    expected_filename_pattern = Column(String(255), nullable=False)
+    required = Column(Boolean, default=True)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    recon_pair = relationship("ReconPair", back_populates="expected_files")
+    file_receipts = relationship("FileReceipt", back_populates="expected_file")
+
+
+class FileReceipt(Base):
+    __tablename__ = "file_receipts"
+    id = Column(Integer, primary_key=True, index=True)
+    expected_file_id = Column(Integer, ForeignKey("expected_files.id"), nullable=True, index=True)
+    recon_pair_id = Column(Integer, ForeignKey("recon_pairs.id"), nullable=True, index=True)
+    import_batch_id = Column(Integer, ForeignKey("import_batches.id"), nullable=True, index=True)
+    file_name = Column(String(255), nullable=False)
+    file_kind = Column(String(20), default="SOURCE")
+    source = Column(String(80), nullable=True)
+    file_date = Column(Date, default=datetime.date.today, index=True)
+    status = Column(String(20), default="RECEIVED")
+    matched_pattern = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    expected_file = relationship("ExpectedFile", back_populates="file_receipts")
+    recon_pair = relationship("ReconPair", back_populates="file_receipts")
+    import_batch = relationship("ImportBatch", back_populates="file_receipts")
 
 
 class SummaryRow(Base):

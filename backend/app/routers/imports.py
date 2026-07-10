@@ -5,6 +5,7 @@ from app.database import get_db
 from app.models.models import ImportBatch, ExceptionDetail
 from app.schemas.schemas import ImportBatchOut, ExceptionDetailOut
 from app.services.excel_import import process_excel_file, process_image_file
+from app.services.file_monitoring import match_expected_file, process_source_file, record_recon_upload
 
 logger = logging.getLogger("import")
 
@@ -12,6 +13,7 @@ router = APIRouter(tags=["import"])
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff"}
 EXCEL_EXTENSIONS = {".xlsx", ".xls", ".xlsm"}
+SOURCE_EXTENSIONS = {".csv", ".txt"}
 
 
 @router.post("/import/excel")
@@ -26,9 +28,17 @@ async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_d
         if ext in IMAGE_EXTENSIONS:
             batch = process_image_file(file_bytes, file.filename, db)
         elif ext in EXCEL_EXTENSIONS:
-            batch = process_excel_file(file_bytes, file.filename, db)
+            expected_file, _ = match_expected_file(db, file.filename)
+            is_recon_file = file.filename.lower().startswith("recon_")
+            if expected_file and not is_recon_file:
+                batch = process_source_file(file.filename, db)
+            else:
+                batch = process_excel_file(file_bytes, file.filename, db)
+                record_recon_upload(db, batch, file.filename)
+        elif ext in SOURCE_EXTENSIONS:
+            batch = process_source_file(file.filename, db)
         else:
-            raise HTTPException(400, f"Unsupported file type: {ext}. Use Excel (.xlsx/.xls) or image files.")
+            raise HTTPException(400, f"Unsupported file type: {ext}. Use Excel (.xlsx/.xls), CSV, text, or image files.")
     except Exception as e:
         logger.error(f"Import error: {e}")
         raise HTTPException(500, str(e))

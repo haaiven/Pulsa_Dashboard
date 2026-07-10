@@ -7,6 +7,7 @@ from app.database import engine, SessionLocal
 from app.models.models import Base, User
 from app.routers import auth, master, dashboard, imports
 from app.services.auth import seed_users, get_password_hash
+from app.services.file_monitoring import seed_recon_configuration
 
 
 logging.basicConfig(level=logging.INFO)
@@ -37,6 +38,7 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_users(db)
+        seed_recon_configuration(db)
     finally:
         db.close()
     yield
