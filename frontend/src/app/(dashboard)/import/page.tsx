@@ -4,6 +4,8 @@ import { useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+const API_HOST = typeof window !== "undefined" ? window.location.protocol + "//" + window.location.hostname + ":8000" : "http://localhost:8000";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Upload, FileSpreadsheet, Image, CheckCircle, XCircle, Loader2 } from "lucide-react";
 
@@ -37,13 +39,21 @@ export default function ImportPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await api.post("/import/excel", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_HOST}/import/excel`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
       });
-      setResult(res.data);
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setResult(data);
       queryClient.invalidateQueries({ queryKey: ["import-history"] });
     } catch (err: any) {
-      setResult({ status: "FAILED", error: err.response?.data?.detail || err.message });
+      setResult({ status: "FAILED", error: err.message });
     } finally {
       setUploading(false);
     }

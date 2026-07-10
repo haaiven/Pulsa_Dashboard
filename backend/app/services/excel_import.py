@@ -1,6 +1,7 @@
 import base64
 import datetime
 import io
+import json
 import logging
 import os
 import re
@@ -353,6 +354,7 @@ def store_report_summary_rows(
     unit_col: int,
     bas_col: int,
     dana_col: int,
+    diff_col: int,
 ):
     row_order = 1
     for _, row in raw_df.iterrows():
@@ -361,8 +363,11 @@ def store_report_summary_rows(
         unit = stringify_cell(row.iloc[unit_col]) if unit_col < len(row) else ""
         bas_value = parse_optional_number(row.iloc[bas_col]) if bas_col < len(row) else None
         dana_value = parse_optional_number(row.iloc[dana_col]) if dana_col < len(row) else None
+        chksum_value = parse_optional_number(row.iloc[diff_col]) if diff_col < len(row) else None
+        if chksum_value is None and bas_value is not None and dana_value is not None:
+            chksum_value = dana_value - bas_value
 
-        if not any([no, description, unit, bas_value is not None, dana_value is not None]):
+        if not any([no, description, unit, bas_value is not None, dana_value is not None, chksum_value is not None]):
             continue
         if normalize_label(description) in {"DESKRIPSI", ""}:
             continue
@@ -375,6 +380,7 @@ def store_report_summary_rows(
             unit=unit,
             bas_value=bas_value,
             dana_value=dana_value,
+            chksum_value=chksum_value,
             is_section=bas_value is None and dana_value is None,
         ))
         row_order += 1
@@ -388,7 +394,7 @@ def process_report_summary_sheet(raw_df: pd.DataFrame, db: Session) -> list[Dail
     desc_col, unit_col, bas_col, _dana_col, diff_col = columns
     trx_date = extract_summary_report_date(raw_df)
     replace_summary_data_for_date(db, trx_date)
-    store_report_summary_rows(raw_df, db, trx_date, desc_col, unit_col, bas_col, _dana_col)
+    store_report_summary_rows(raw_df, db, trx_date, desc_col, unit_col, bas_col, _dana_col, diff_col)
     route_id = ensure_default_route(db)
 
     summary = DailySummary(
@@ -400,7 +406,8 @@ def process_report_summary_sheet(raw_df: pd.DataFrame, db: Session) -> list[Dail
         failed_transaction=int(find_summary_metric(raw_df, desc_col, unit_col, bas_col, "STATUS: FAILED", "#")),
         gross_amount=find_summary_metric(raw_df, desc_col, unit_col, bas_col, "TOTAL TRANSAKSI (ALL STATUS)", "RP."),
         settlement_amount=find_summary_metric(raw_df, desc_col, unit_col, bas_col, "TOTAL SETTLEMENT", "RP."),
-        difference_amount=find_summary_metric(raw_df, desc_col, unit_col, diff_col, "TOTAL SETTLEMENT", "RP."),
+        difference_amount=find_summary_metric(raw_df, desc_col, unit_col, _dana_col, "TOTAL SETTLEMENT", "RP.")
+        - find_summary_metric(raw_df, desc_col, unit_col, bas_col, "TOTAL SETTLEMENT", "RP."),
     )
     db.add(summary)
     return [summary]
@@ -445,13 +452,18 @@ def process_exception_sheet(df: pd.DataFrame, db: Session, sheet_name: str, dail
 
     for idx, row in df.iterrows():
         summary = daily_summaries[0] if daily_summaries else None
+        raw_data = json.dumps({
+            str(col): "" if pd.isna(row.iloc[idx]) else str(row.iloc[idx])
+            for idx, col in enumerate(df.columns)
+        }, default=str)
         exc = ExceptionDetail(
             daily_summary_id=summary.id if summary else 1,
             exception_type=exception_type,
-            reference_number=str(get_row_value(row, "reference_number", "ref_no", default="") or ""),
-            product_code=str(get_row_value(row, "product_code", "product", default="") or ""),
-            amount=parse_number(get_row_value(row, "amount", "difference", default=0)),
-            reason=str(get_row_value(row, "reason", "description", "keterangan", default="") or ""),
+            reference_number=str(get_row_value(row, "reference_number", "ref_no", "reff_trxid", "MERCHANT_TRANS_ID", "merchant_trans_id", default="") or ""),
+            product_code=str(get_row_value(row, "product_code", "product", "produk", "master_code", "partner_sku", default="") or ""),
+            amount=parse_number(get_row_value(row, "amount", "difference", "selisih", "price", "TXN_AMOUNT", "SETTLE_AMOUNT", "settle_amount_idr", default=0)),
+            reason=str(get_row_value(row, "reason", "description", "keterangan", "Info", "result", default="") or ""),
+            raw_data=raw_data,
         )
         db.add(exc)
 
@@ -468,9 +480,9 @@ def process_recon_sheet(df: pd.DataFrame, db: Session, sheet_name: str, daily_su
         recon = ReconResult(
             daily_summary_id=summary.id if summary else 1,
             recon_type=recon_type,
-            description=str(get_row_value(row, "description", "reason", default="") or ""),
-            system_value=parse_number(get_row_value(row, "system_value", "system", default=0)),
-            external_value=parse_number(get_row_value(row, "external_value", "external", default=0)),
+            description=str(get_row_value(row, "description", "reason", "MERCHANT_NAME", "result", "message", default="") or ""),
+            system_value=parse_number(get_row_value(row, "system_value", "system", "price", "hpp_partner", "TXN_AMOUNT", default=0)),
+            external_value=parse_number(get_row_value(row, "external_value", "external", "dana", "settle_amount_idr", "SETTLE_AMOUNT", default=0)),
             difference=parse_number(get_row_value(row, "difference", "diff", "selisih", default=0)),
             status=str(get_row_value(row, "status", default="OPEN") or "OPEN"),
         )

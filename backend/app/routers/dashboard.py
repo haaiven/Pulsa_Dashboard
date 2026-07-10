@@ -2,7 +2,7 @@ import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.services.dashboard import get_overview, get_daily, get_weekly, get_monthly, get_trend, get_recon
+from app.services.dashboard import get_overview, get_daily, get_weekly, get_monthly, get_trend, get_recon, get_drilldown
 from app.schemas.schemas import ReconResultOut
 
 router = APIRouter(tags=["dashboard"])
@@ -61,6 +61,19 @@ def dashboard_trend(
     sd = datetime.date.fromisoformat(start_date) if start_date else None
     ed = datetime.date.fromisoformat(end_date) if end_date else None
     return get_trend(db, sd, ed)
+
+
+@router.get("/dashboard/drilldown")
+def dashboard_drilldown(
+    trx_date: str = Query(...),
+    exception_type: str | None = Query(None),
+    q: str | None = Query(None),
+    limit: int = Query(500),
+    offset: int = Query(0),
+    db: Session = Depends(get_db),
+):
+    td = datetime.date.fromisoformat(trx_date)
+    return get_drilldown(db, td, exception_type, q, limit, offset)
 
 
 @router.get("/dashboard/recon", response_model=list[ReconResultOut])

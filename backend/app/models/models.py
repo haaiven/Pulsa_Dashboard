@@ -108,6 +108,7 @@ class SummaryRow(Base):
     unit = Column(String(20), default="")
     bas_value = Column(Float, nullable=True)
     dana_value = Column(Float, nullable=True)
+    chksum_value = Column(Float, nullable=True)
     is_section = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -152,6 +153,7 @@ class ExceptionDetail(Base):
     product_code = Column(String(50))
     amount = Column(Float, default=0)
     reason = Column(Text)
+    raw_data = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     daily_summary = relationship("DailySummary", back_populates="exception_details")
 

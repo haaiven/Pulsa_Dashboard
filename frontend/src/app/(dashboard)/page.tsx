@@ -12,6 +12,7 @@ type SummaryRow = {
   unit: string;
   bas_value: number | null;
   dana_value: number | null;
+  chksum_value: number | null;
   is_section: boolean;
 };
 
@@ -26,6 +27,15 @@ const isHighlightedRow = (row: SummaryRow) => {
   return !row.description.startsWith("  ");
 };
 
+const getExceptionType = (description: string): string | undefined => {
+  const desc = description.toUpperCase();
+  if (desc.includes("BEDA HARGA")) return "PRICE_MISMATCH";
+  if (desc.includes("ADA DI DANA")) return "ONLY_IN_DANA";
+  if (desc.includes("ADA DI BAS")) return "ONLY_IN_DB";
+  if (desc.includes("FORCE FAILED")) return "FORCE_FAILED";
+  return undefined;
+};
+
 export default function OverviewPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard-overview"],
@@ -35,6 +45,7 @@ export default function OverviewPage() {
   if (isLoading) return <div className="text-center py-10 text-slate-500">Loading...</div>;
 
   const rows: SummaryRow[] = data?.rows || [];
+  const trxDate = data?.trx_date;
 
   return (
     <div>
@@ -61,6 +72,7 @@ export default function OverviewPage() {
                   <th className="border border-slate-500 px-2 py-2 text-center w-20">Unit</th>
                   <th className="border border-slate-500 px-2 py-2 text-right min-w-44">BAS (DANABAS)</th>
                   <th className="border border-slate-500 px-2 py-2 text-right min-w-52">DANA (DASHBOARD DANA)</th>
+                  <th className="border border-slate-500 px-2 py-2 text-right min-w-44">CHKSUM (E-D)</th>
                 </tr>
               </thead>
               <tbody>
@@ -73,12 +85,27 @@ export default function OverviewPage() {
                       <td className="border border-slate-400 px-2 py-1 text-center align-middle">{row.unit}</td>
                       <td className="border border-slate-400 px-2 py-1 text-right align-middle tabular-nums">{formatNumber(row.bas_value)}</td>
                       <td className="border border-slate-400 px-2 py-1 text-right align-middle tabular-nums">{formatNumber(row.dana_value)}</td>
+                      <td className="border border-slate-400 px-2 py-1 text-right align-middle tabular-nums">
+                        {row.chksum_value !== null && row.chksum_value !== undefined ? (
+                          <button
+                            onClick={() => {
+                              const type = getExceptionType(row.description);
+                              const params = new URLSearchParams({ date: trxDate });
+                              if (type) params.set("type", type);
+                              window.location.href = `/drilldown?${params.toString()}`;
+                            }}
+                            className="text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 font-medium"
+                          >
+                            {formatNumber(row.chksum_value)}
+                          </button>
+                        ) : ""}
+                      </td>
                     </tr>
                   );
                 })}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="border border-slate-300 px-4 py-10 text-center text-slate-400">
+                    <td colSpan={6} className="border border-slate-300 px-4 py-10 text-center text-slate-400">
                       Belum ada data. Upload file Excel melalui menu Import.
                     </td>
                   </tr>
