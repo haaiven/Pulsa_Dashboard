@@ -6,7 +6,7 @@ import { useState, useMemo } from "react";
 import api from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, CheckCircle2, ChevronDown, Clock3, Database, Eye, Search, X, XCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronDown, Clock3, Database, Eye, FileSpreadsheet, Search, X, XCircle } from "lucide-react";
 
 const fixedCols_BASE = ["#", "Reference", "Kategori", "Nilai A", "Nilai B", "Selisih", "Action"];
 
@@ -115,6 +115,17 @@ export default function DrilldownPage() {
     const raw = data?.exceptions || [];
     return excludeType ? raw.filter((r: any) => r.exception_type !== excludeType) : raw;
   }, [data?.exceptions, excludeType]);
+
+  const handleExport = () => {
+    const q = new URLSearchParams({ trx_date: date! });
+    const type = exceptionType || (categoryFilter !== "ALL" ? categoryFilter : undefined);
+    if (type) q.set("exception_type", type);
+    if (search) q.set("q", search);
+    if (pairId) q.set("pair_id", pairId);
+    if (sourceA) q.set("source_a", sourceA);
+    if (sourceB) q.set("source_b", sourceB);
+    window.open(`/api/dashboard/drilldown/export?${q.toString()}`);
+  };
 
   const filteredExceptions = useMemo(() => {
     return categoryFilter === "ALL" ? exceptions : exceptions.filter((r: any) => r.exception_type === categoryFilter);
@@ -229,6 +240,9 @@ export default function DrilldownPage() {
                   ))}
                 </select>
               )}
+              <button onClick={handleExport} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition">
+                <FileSpreadsheet size={14} /> Export Excel
+              </button>
             </div>
           </div>
 

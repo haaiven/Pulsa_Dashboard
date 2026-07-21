@@ -78,10 +78,10 @@ def get_overview(db: Session, start_date=None, end_date=None, pair_id: int | Non
                         "DB_ONLY_EXT_CHECK": f"Missing in {source_b}",
                     }
 
-        total_trx_a = _find_metric(rows, ["TOTAL TRANSAKSI (ALL STATUS)"], "#", "bas")
-        total_trx_b = _find_metric(rows, ["TOTAL TRANSAKSI (ALL STATUS)"], "#", "dana")
-        total_nominal_a = _find_metric(rows, ["TOTAL TRANSAKSI (ALL STATUS)"], "RP.", "bas")
-        total_nominal_b = _find_metric(rows, ["TOTAL TRANSAKSI (ALL STATUS)"], "RP.", "dana")
+        total_trx_a = _find_metric(rows, ["STATUS: SUCCESS"], "#", "bas")
+        total_trx_b = _find_metric(rows, ["STATUS: SUCCESS"], "#", "dana")
+        total_nominal_a = _find_metric(rows, ["STATUS: SUCCESS"], "RP.", "bas")
+        total_nominal_b = _find_metric(rows, ["STATUS: SUCCESS"], "RP.", "dana")
         settlement_a = _find_metric(rows, ["TOTAL SETTLEMENT"], "RP.", "bas")
         settlement_b = _find_metric(rows, ["TOTAL SETTLEMENT"], "RP.", "dana")
         diff = (
@@ -449,6 +449,110 @@ def get_drilldown(
         "available_types": available_types,
         "pricing_breakdown": pricing_breakdown,
     }
+
+
+def export_drilldown(
+    db: Session,
+    trx_date: datetime.date,
+    exception_type: str | None = None,
+    q: str | None = None,
+    pair_id: int | None = None,
+    source_a: str = "BAS",
+    source_b: str = "DANA",
+):
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from fastapi.responses import StreamingResponse
+
+    sr_q = db.query(SummaryRow).filter(SummaryRow.trx_date == trx_date)
+    if pair_id is not None:
+        sr_q = sr_q.filter(SummaryRow.recon_pair_id == pair_id)
+    sr_rows = list(sr_q.all())
+
+    ds_ids = [
+        row.id for row in db.query(DailySummary.id).filter(DailySummary.trx_date == trx_date).all()
+    ]
+    if not ds_ids:
+        return StreamingResponse(BytesIO(b""), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    query = db.query(ExceptionDetail).filter(ExceptionDetail.daily_summary_id.in_(ds_ids))
+    if exception_type:
+        query = query.filter(ExceptionDetail.exception_type == exception_type)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(
+            ExceptionDetail.reference_number.ilike(like)
+            | ExceptionDetail.product_code.ilike(like)
+            | ExceptionDetail.raw_data.ilike(like)
+        )
+
+    exceptions = query.order_by(ExceptionDetail.exception_type, ExceptionDetail.reference_number).all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Drilldown"
+
+    header_font = Font(bold=True, size=10)
+    header_fill = PatternFill(start_color="E2E8F0", end_color="E2E8F0", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin")
+    )
+
+    raw_keys = _extract_raw_columns(exceptions)
+
+    headers = ["#", "Reference", "Kategori", f"{source_a}", f"{source_b}", "Selisih", "Reason"] + raw_keys
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
+        cell.alignment = Alignment(horizontal="center")
+
+    for row_idx, e in enumerate(exceptions, 2):
+        raw = json.loads(e.raw_data) if e.raw_data else {}
+        bas_val = _extract_bas(e, raw)
+        dana_val = _extract_dana(e, raw)
+        diff_val = _extract_diff(e, raw)
+        values = [
+            row_idx - 1,
+            e.reference_number or "",
+            e.exception_type or "",
+            bas_val,
+            dana_val,
+            diff_val,
+            e.reason or "",
+        ] + [raw.get(k, "") for k in raw_keys]
+
+        for col_idx, val in enumerate(values, 1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=val if val is not None else "")
+            cell.border = thin_border
+            cell.font = Font(size=9)
+
+    ws.column_dimensions["A"].width = 6
+    ws.column_dimensions["B"].width = 24
+    ws.column_dimensions["C"].width = 18
+    ws.column_dimensions["D"].width = 14
+    ws.column_dimensions["E"].width = 14
+    ws.column_dimensions["F"].width = 14
+    ws.column_dimensions["G"].width = 30
+
+    pair_label = source_a.replace("+", "-").replace(" ", "-") + "-" + source_b.replace("+", "-").replace(" ", "-")
+    type_label = exception_type.replace("_", "-").lower() if exception_type else "all"
+    filename = f"drilldown_{pair_label}_{trx_date}_{type_label}.xlsx"
+    filename = filename.replace(" ", "_").replace("/", "-")
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _parse_float(v: object) -> float:

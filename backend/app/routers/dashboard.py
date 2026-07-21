@@ -2,7 +2,7 @@ import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.services.dashboard import get_overview, get_daily, get_weekly, get_monthly, get_trend, get_recon, get_drilldown
+from app.services.dashboard import get_overview, get_daily, get_weekly, get_monthly, get_trend, get_recon, get_drilldown, export_drilldown
 from app.schemas.schemas import ReconResultOut
 
 router = APIRouter(tags=["dashboard"])
@@ -78,6 +78,20 @@ def dashboard_drilldown(
 ):
     td = datetime.date.fromisoformat(trx_date)
     return get_drilldown(db, td, exception_type, q, limit, offset, source_a, source_b, pair_id)
+
+
+@router.get("/dashboard/drilldown/export")
+def dashboard_drilldown_export(
+    trx_date: str = Query(...),
+    exception_type: str | None = Query(None),
+    q: str | None = Query(None),
+    pair_id: int | None = Query(None),
+    source_a: str = Query("BAS"),
+    source_b: str = Query("DANA"),
+    db: Session = Depends(get_db),
+):
+    td = datetime.date.fromisoformat(trx_date)
+    return export_drilldown(db, td, exception_type, q, pair_id, source_a, source_b)
 
 
 @router.get("/dashboard/recon", response_model=list[ReconResultOut])
