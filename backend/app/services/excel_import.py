@@ -288,13 +288,12 @@ def normalize_label(value) -> str:
 def find_summary_report_columns(df: pd.DataFrame) -> tuple[int, int, int, int, int] | None:
     for row_idx in range(len(df)):
         labels = [normalize_label(v) for v in df.iloc[row_idx].tolist()]
-        if "DESKRIPSI" not in labels or "BAS (DANABAS)" not in labels:
+        if "DESKRIPSI" not in labels:
             continue
-
         desc_col = labels.index("DESKRIPSI")
         unit_col = labels.index("UNIT") if "UNIT" in labels else desc_col + 1
-        bas_col = labels.index("BAS (DANABAS)")
-        dana_col = labels.index("DANA (DASHBOARD DANA)") if "DANA (DASHBOARD DANA)" in labels else bas_col + 1
+        bas_col = desc_col + 2
+        dana_col = desc_col + 3
         diff_col = labels.index("CHKSUM (E-D)") if "CHKSUM (E-D)" in labels else dana_col + 1
         return desc_col, unit_col, bas_col, dana_col, diff_col
     return None
@@ -333,16 +332,20 @@ def find_summary_metric(
     return 0
 
 
-def replace_summary_data_for_date(db: Session, trx_date: datetime.date):
-    daily_summary_ids = [
-        row.id for row in db.query(DailySummary.id).filter(DailySummary.trx_date == trx_date).all()
-    ]
+def replace_summary_data_for_date(db: Session, trx_date: datetime.date, recon_pair_id: int | None = None):
+    ds_q = db.query(DailySummary.id).filter(DailySummary.trx_date == trx_date)
+    if recon_pair_id is not None:
+        ds_q = ds_q.filter(DailySummary.recon_pair_id == recon_pair_id)
+    daily_summary_ids = [row.id for row in ds_q.all()]
     if daily_summary_ids:
         db.query(ExceptionDetail).filter(ExceptionDetail.daily_summary_id.in_(daily_summary_ids)).delete(synchronize_session=False)
         db.query(ReconResult).filter(ReconResult.daily_summary_id.in_(daily_summary_ids)).delete(synchronize_session=False)
         db.query(DailySummary).filter(DailySummary.id.in_(daily_summary_ids)).delete(synchronize_session=False)
 
-    db.query(SummaryRow).filter(SummaryRow.trx_date == trx_date).delete(synchronize_session=False)
+    q = db.query(SummaryRow).filter(SummaryRow.trx_date == trx_date)
+    if recon_pair_id is not None:
+        q = q.filter(SummaryRow.recon_pair_id == recon_pair_id)
+    q.delete(synchronize_session=False)
     db.flush()
 
 
@@ -355,6 +358,7 @@ def store_report_summary_rows(
     bas_col: int,
     dana_col: int,
     diff_col: int,
+    recon_pair_id: int | None = None,
 ):
     row_order = 1
     for _, row in raw_df.iterrows():
@@ -374,6 +378,7 @@ def store_report_summary_rows(
 
         db.add(SummaryRow(
             trx_date=trx_date,
+            recon_pair_id=recon_pair_id,
             row_order=row_order,
             no=no,
             description=description,
@@ -386,20 +391,21 @@ def store_report_summary_rows(
         row_order += 1
 
 
-def process_report_summary_sheet(raw_df: pd.DataFrame, db: Session) -> list[DailySummary]:
+def process_report_summary_sheet(raw_df: pd.DataFrame, db: Session, recon_pair_id: int | None = None) -> list[DailySummary]:
     columns = find_summary_report_columns(raw_df)
     if not columns:
         return []
 
     desc_col, unit_col, bas_col, _dana_col, diff_col = columns
     trx_date = extract_summary_report_date(raw_df)
-    replace_summary_data_for_date(db, trx_date)
-    store_report_summary_rows(raw_df, db, trx_date, desc_col, unit_col, bas_col, _dana_col, diff_col)
+    replace_summary_data_for_date(db, trx_date, recon_pair_id)
+    store_report_summary_rows(raw_df, db, trx_date, desc_col, unit_col, bas_col, _dana_col, diff_col, recon_pair_id)
     route_id = ensure_default_route(db)
 
     summary = DailySummary(
         trx_date=trx_date,
         route_id=route_id,
+        recon_pair_id=recon_pair_id,
         total_transaction=int(find_summary_metric(raw_df, desc_col, unit_col, bas_col, "TOTAL TRANSAKSI (ALL STATUS)", "#")),
         success_transaction=int(find_summary_metric(raw_df, desc_col, unit_col, bas_col, "STATUS: SUCCESS", "#")),
         pending_transaction=int(find_summary_metric(raw_df, desc_col, unit_col, bas_col, "STATUS: PENDING", "#")),
@@ -489,11 +495,16 @@ def process_recon_sheet(df: pd.DataFrame, db: Session, sheet_name: str, daily_su
         db.add(recon)
 
 
-def process_excel_file(file_bytes: bytes, file_name: str, db: Session) -> ImportBatch:
+def process_excel_file(
+    file_bytes: bytes, file_name: str, db: Session,
+    recon_pair_id: int | None = None, file_size: int | None = None, trx_date: datetime.date | None = None,
+) -> ImportBatch:
     batch_no = f"BATCH-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
     batch = ImportBatch(
         batch_no=batch_no,
         file_name=file_name,
+        file_size=file_size,
+        trx_date=trx_date,
         sheet_name="all",
         status="PROCESSING",
     )
@@ -510,7 +521,7 @@ def process_excel_file(file_bytes: bytes, file_name: str, db: Session) -> Import
         if "summary" in sheets:
             actual_name = [s for s in xl.sheet_names if s.lower() == "summary"][0]
             raw_df = pd.read_excel(xl, sheet_name=actual_name, header=None)
-            daily_summaries = process_report_summary_sheet(raw_df, db)
+            daily_summaries = process_report_summary_sheet(raw_df, db, recon_pair_id)
 
             if not daily_summaries:
                 df = pd.read_excel(xl, sheet_name=actual_name)
@@ -560,13 +571,15 @@ def process_excel_file(file_bytes: bytes, file_name: str, db: Session) -> Import
     return batch
 
 
-def process_image_file(file_bytes: bytes, file_name: str, db: Session) -> ImportBatch:
+def process_image_file(file_bytes: bytes, file_name: str, db: Session, file_size: int | None = None, trx_date: datetime.date | None = None) -> ImportBatch:
     """Process an image file by extracting table data via OpenAI Vision first,
     then processing the resulting DataFrame."""
     batch_no = f"BATCH-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
     batch = ImportBatch(
         batch_no=batch_no,
         file_name=file_name,
+        file_size=file_size,
+        trx_date=trx_date,
         sheet_name="image_extract",
         status="PROCESSING",
     )

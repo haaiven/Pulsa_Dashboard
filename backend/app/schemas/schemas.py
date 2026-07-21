@@ -126,6 +126,7 @@ class ReconPairBase(BaseModel):
     source_a: str
     source_b: str
     active: bool = True
+    settlement_direction: str = "RECEIVABLE"
 
 
 class ReconPairCreate(ReconPairBase):
@@ -140,6 +141,7 @@ class ReconPairUpdate(BaseModel):
     source_a: Optional[str] = None
     source_b: Optional[str] = None
     active: Optional[bool] = None
+    settlement_direction: Optional[str] = None
 
 
 class ReconPairOut(ReconPairBase):
@@ -253,11 +255,15 @@ class ImportBatchOut(BaseModel):
     id: int
     batch_no: str
     upload_date: datetime.date
+    trx_date: Optional[datetime.date] = None
     file_name: Optional[str] = None
+    file_size: Optional[int] = None
     sheet_name: Optional[str] = None
     records: int
     status: str
     created_at: datetime.datetime
+    pair_name: Optional[str] = None
+    source_settlement_total: Optional[int] = None
     model_config = {"from_attributes": True}
 
 

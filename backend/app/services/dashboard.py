@@ -1,30 +1,192 @@
 import datetime
 import json
+from typing import Any
+
 from sqlalchemy import func, extract
 from sqlalchemy.orm import Session
-from app.models.models import DailySummary, ReconResult, ExceptionDetail, SummaryRow
+
+from app.models.models import DailySummary, ReconResult, ExceptionDetail, SummaryRow, ReconPair, ExpectedFile, FileReceipt, ImportBatch
 
 
-def get_overview(db: Session, start_date=None, end_date=None, provider_id=None, aggregator_id=None,
-                 switch_id=None, agent_id=None, channel_id=None, product_id=None):
+EXCEPTION_LABELS = {
+    "PRICE_MISMATCH": "Pricing Difference",
+    "DANA_ONLY_EXT_CHECK": None,  # mapped dynamically
+    "DB_ONLY_EXT_CHECK": None,    # mapped dynamically
+    "FORCE_FAILED": "Force Failed",
+}
+
+
+def _find_metric(rows: list[SummaryRow], keywords: list[str], unit: str, source: str) -> float:
+    for row in rows:
+        desc = (row.description or "").upper().strip()
+        if not any(kw in desc for kw in (k.upper() for k in keywords)):
+            continue
+        row_unit = (row.unit or "").upper().strip()
+        if row_unit != unit.upper():
+            continue
+        if source == "bas":
+            return row.bas_value or 0.0
+        elif source == "dana":
+            return row.dana_value or 0.0
+        elif source == "diff":
+            return row.chksum_value or 0.0
+    return 0.0
+
+
+def get_overview(db: Session, start_date=None, end_date=None, pair_id: int | None = None):
+    pair = None
+    if pair_id is not None:
+        pair = db.query(ReconPair).filter(ReconPair.id == pair_id).first()
+
     date_q = db.query(SummaryRow.trx_date)
     if start_date:
         date_q = date_q.filter(SummaryRow.trx_date >= start_date)
     if end_date:
         date_q = date_q.filter(SummaryRow.trx_date <= end_date)
+    if pair_id is not None:
+        date_q = date_q.filter(SummaryRow.recon_pair_id == pair_id)
 
     latest_date = date_q.order_by(SummaryRow.trx_date.desc()).limit(1).scalar()
+
+    source_a = pair.source_a if pair else "BAS"
+    source_b = pair.source_b if pair else "DANA"
+    pair_code = pair.pair_code if pair else None
+    pair_name = pair.pair_name if pair else None
+
+    labels = {
+        "DANA_ONLY_EXT_CHECK": f"Missing in {source_a}",
+        "DB_ONLY_EXT_CHECK": f"Missing in {source_b}",
+    }
+
     if latest_date:
-        rows = (
-            db.query(SummaryRow)
-            .filter(SummaryRow.trx_date == latest_date)
-            .order_by(SummaryRow.row_order)
-            .all()
+        q = db.query(SummaryRow).filter(SummaryRow.trx_date == latest_date)
+        if pair_id is not None:
+            q = q.filter(SummaryRow.recon_pair_id == pair_id)
+        rows = q.order_by(SummaryRow.row_order).all()
+
+        if pair_id is None and rows and not pair:
+            first_pair_id = rows[0].recon_pair_id
+            if first_pair_id:
+                pair = db.query(ReconPair).filter(ReconPair.id == first_pair_id).first()
+                if pair:
+                    source_a = pair.source_a
+                    source_b = pair.source_b
+                    pair_code = pair.pair_code
+                    pair_name = pair.pair_name
+                    labels = {
+                        "DANA_ONLY_EXT_CHECK": f"Missing in {source_a}",
+                        "DB_ONLY_EXT_CHECK": f"Missing in {source_b}",
+                    }
+
+        total_trx_a = _find_metric(rows, ["TOTAL TRANSAKSI (ALL STATUS)"], "#", "bas")
+        total_trx_b = _find_metric(rows, ["TOTAL TRANSAKSI (ALL STATUS)"], "#", "dana")
+        total_nominal_a = _find_metric(rows, ["TOTAL TRANSAKSI (ALL STATUS)"], "RP.", "bas")
+        total_nominal_b = _find_metric(rows, ["TOTAL TRANSAKSI (ALL STATUS)"], "RP.", "dana")
+        settlement_a = _find_metric(rows, ["TOTAL SETTLEMENT"], "RP.", "bas")
+        settlement_b = _find_metric(rows, ["TOTAL SETTLEMENT"], "RP.", "dana")
+        diff = (
+            (_find_metric(rows, ["BEDA HARGA"], "RP.", "dana") - _find_metric(rows, ["BEDA HARGA"], "RP.", "bas"))
+            + _find_metric(rows, ["ADA DI DANA TIDAK ADA DI"], "RP.", "dana")
+            + (-_find_metric(rows, ["TIDAK ADA DI DANA"], "RP.", "bas"))
         )
+        max_settlement = max(settlement_a, settlement_b)
+        diff_pct = round((abs(diff) / max_settlement * 100) if max_settlement > 0 else 0, 2)
+
+        source_b_settlement_total: int | None = None
+        source_b_file_name: str | None = None
+        if pair and latest_date:
+            source_b_file = (
+                db.query(ExpectedFile)
+                .filter(ExpectedFile.recon_pair_id == pair.id, ExpectedFile.source == source_b, ExpectedFile.active.is_(True))
+                .first()
+            )
+            if source_b_file:
+                h1_date = latest_date + datetime.timedelta(days=1)
+                receipt = (
+                    db.query(FileReceipt)
+                    .filter(FileReceipt.expected_file_id == source_b_file.id, FileReceipt.file_date == h1_date)
+                    .order_by(FileReceipt.created_at.desc())
+                    .first()
+                )
+                if receipt and receipt.import_batch:
+                    source_b_settlement_total = receipt.import_batch.source_settlement_total
+                    source_b_file_name = receipt.file_name
+
+        summary_amounts: dict[str, float] = {
+            "PRICE_MISMATCH": (
+                _find_metric(rows, ["BEDA HARGA"], "RP.", "dana")
+                - _find_metric(rows, ["BEDA HARGA"], "RP.", "bas")
+            ),
+            "ONLY_IN_DANA": _find_metric(rows, ["ADA DI DANA TIDAK ADA DI"], "RP.", "dana"),
+            "ONLY_IN_DB": -_find_metric(rows, ["TIDAK ADA DI DANA"], "RP.", "bas"),
+            "FORCE_FAILED": -_find_metric(rows, ["FORCE FAILED"], "RP.", "bas"),
+            "DANA_ONLY_EXT_CHECK": _find_metric(rows, ["ADA DI DANA TIDAK ADA DI"], "RP.", "dana"),
+            "DB_ONLY_EXT_CHECK": -_find_metric(rows, ["TIDAK ADA DI DANA"], "RP.", "bas"),
+        }
+
+        ds_q = db.query(DailySummary.id).filter(DailySummary.trx_date == latest_date)
+        if pair_id is not None:
+            ds_q = ds_q.filter(
+                (DailySummary.recon_pair_id == pair_id) | (DailySummary.recon_pair_id.is_(None))
+            )
+        ds_ids = [r.id for r in ds_q.all()]
+        exception_summaries: list[dict[str, Any]] = []
+        if ds_ids:
+            agg = (
+                db.query(
+                    ExceptionDetail.exception_type,
+                    func.count(ExceptionDetail.id).label("count"),
+                )
+                .filter(ExceptionDetail.daily_summary_id.in_(ds_ids))
+                .group_by(ExceptionDetail.exception_type)
+                .all()
+            )
+            for et, count in agg:
+                if et in ("ONLY_IN_DANA", "ONLY_IN_DB"):
+                    continue
+                exception_summaries.append({
+                    "exception_type": et,
+                    "label": (
+                        labels.get(et)
+                        or EXCEPTION_LABELS.get(et)
+                        or et
+                    ),
+                    "transaction_count": count or 0,
+                    "difference_amount": int(summary_amounts.get(et, 0)),
+                })
+
+        seen_types = {es["exception_type"] for es in exception_summaries}
+        for et in ("DANA_ONLY_EXT_CHECK", "DB_ONLY_EXT_CHECK", "PRICE_MISMATCH", "FORCE_FAILED"):
+            if et not in seen_types:
+                amt = int(summary_amounts.get(et, 0))
+                if amt != 0:
+                    exception_summaries.append({
+                        "exception_type": et,
+                        "label": labels.get(et) or EXCEPTION_LABELS.get(et) or et,
+                        "transaction_count": 0,
+                        "difference_amount": amt,
+                    })
+
         return {
             "trx_date": latest_date,
-            "title": "REKONSILIASI BAS x DANA",
-            "columns": ["No.", "DESKRIPSI", "Unit", "BAS (DANABAS)", "DANA (DASHBOARD DANA)", "CHKSUM (E-D)"],
+            "pair_code": pair_code,
+            "pair_name": pair_name,
+            "source_a": source_a,
+            "source_b": source_b,
+            "title": f"REKONSILIASI {source_a} x {source_b}",
+            "columns": ["No.", "DESKRIPSI", "Unit", f"{source_a}", f"{source_b}", "CHKSUM (E-D)"],
+            "total_transaction_source_a": int(total_trx_a),
+            "total_nominal_source_a": int(total_nominal_a),
+            "total_transaction_source_b": int(total_trx_b),
+            "total_nominal_source_b": int(total_nominal_b),
+            "settlement_source_a": int(settlement_a),
+            "settlement_source_b": int(settlement_b),
+            "settlement_difference": int(diff),
+            "settlement_difference_percent": diff_pct,
+            "settlement_direction": pair.settlement_direction if pair else "RECEIVABLE",
+            "source_b_settlement_total": source_b_settlement_total,
+            "source_b_file_name": source_b_file_name,
+            "exception_summaries": exception_summaries,
             "rows": [
                 {
                     "id": row.id,
@@ -43,8 +205,24 @@ def get_overview(db: Session, start_date=None, end_date=None, provider_id=None, 
 
     return {
         "trx_date": None,
-        "title": "REKONSILIASI BAS x DANA",
-        "columns": ["No.", "DESKRIPSI", "Unit", "BAS (DANABAS)", "DANA (DASHBOARD DANA)", "CHKSUM (E-D)"],
+        "pair_code": pair_code,
+        "pair_name": pair_name,
+        "source_a": source_a,
+        "source_b": source_b,
+        "title": f"REKONSILIASI {source_a} x {source_b}",
+        "columns": ["No.", "DESKRIPSI", "Unit", f"{source_a}", f"{source_b}", "CHKSUM (E-D)"],
+        "total_transaction_source_a": 0,
+        "total_nominal_source_a": 0,
+        "total_transaction_source_b": 0,
+        "total_nominal_source_b": 0,
+        "settlement_source_a": 0,
+        "settlement_source_b": 0,
+        "settlement_difference": 0,
+        "settlement_difference_percent": 0,
+        "settlement_direction": pair.settlement_direction if pair else "RECEIVABLE",
+        "source_b_settlement_total": None,
+        "source_b_file_name": None,
+        "exception_summaries": [],
         "rows": [],
     }
 
@@ -142,6 +320,9 @@ def get_drilldown(
     q: str | None = None,
     limit: int = 500,
     offset: int = 0,
+    source_a: str | None = None,
+    source_b: str | None = None,
+    pair_id: int | None = None,
 ):
     ds_ids = [
         row.id for row in db.query(DailySummary.id).filter(DailySummary.trx_date == trx_date).all()
@@ -170,9 +351,82 @@ def get_drilldown(
 
     columns = _extract_raw_columns(exceptions)
 
+    sa = source_a or "BAS"
+    sb = source_b or "DANA"
+    exposure_specs: dict[str, tuple[list[str], str, str]] = {
+        "PRICE_MISMATCH": (["BEDA HARGA"], "RP.", "diff"),
+        "ONLY_IN_DANA": ([f"TIDAK ADA DI {sa}"], "RP.", "dana"),
+        "ONLY_IN_DB": ([f"TIDAK ADA DI {sb}"], "RP.", "bas"),
+        "FORCE_FAILED": (["FORCE FAILED"], "RP.", "bas"),
+        "DANA_ONLY_EXT_CHECK": ([f"TIDAK ADA DI {sa}"], "RP.", "dana"),
+        "DB_ONLY_EXT_CHECK": ([f"TIDAK ADA DI {sb}"], "RP.", "bas"),
+    }
+    summary_exposure: float = 0.0
+    sr_q = db.query(SummaryRow).filter(SummaryRow.trx_date == trx_date)
+    if pair_id is not None:
+        sr_q = sr_q.filter(SummaryRow.recon_pair_id == pair_id)
+    sr_rows = list(sr_q.all())
+    if exception_type and exception_type in exposure_specs:
+        keywords, unit, source = exposure_specs[exception_type]
+        summary_exposure = int(_find_metric(sr_rows, keywords, unit, source))
+    elif not exception_type:
+        sa = source_a or "BAS"
+        sb = source_b or "DANA"
+        price_diff = _find_metric(sr_rows, ["BEDA HARGA"], "RP.", "diff")
+        dana_only = _find_metric(sr_rows, [f"TIDAK ADA DI {sa}"], "RP.", "dana")
+        bas_only = _find_metric(sr_rows, [f"TIDAK ADA DI {sb}"], "RP.", "bas")
+        summary_exposure = int(price_diff + dana_only - bas_only)
+
+    available_types = [
+        row[0] for row in
+        db.query(ExceptionDetail.exception_type.distinct())
+        .filter(ExceptionDetail.daily_summary_id.in_(ds_ids))
+        .filter(~ExceptionDetail.exception_type.in_(["ONLY_IN_DANA", "ONLY_IN_DB"]))
+        .all()
+    ]
+
+    pricing_breakdown: list[dict[str, Any]] = []
+    if exception_type in ("PRICE_MISMATCH", None):
+        count_rows: dict[str, dict[str, float]] = {}
+        amount_rows: dict[str, dict[str, float]] = {}
+        for row in sr_rows:
+            desc = (row.description or "").strip()
+            if not desc or row.is_section:
+                continue
+            if "STATUS" in desc.upper() or "BREAKDOWN" in desc.upper():
+                continue
+            sku = desc
+            if (row.unit or "").upper().strip() in ("#",):
+                count_rows.setdefault(sku, {})["bas"] = row.bas_value or 0
+                count_rows[sku]["dana"] = row.dana_value or 0
+            elif (row.unit or "").upper().strip() in ("RP.", "RP"):
+                amount_rows.setdefault(sku, {})["bas"] = row.bas_value or 0
+                amount_rows[sku]["dana"] = row.dana_value or 0
+        for sku in count_rows:
+            cnt = count_rows.get(sku, {})
+            amt = amount_rows.get(sku, {})
+            bas_cnt = cnt.get("bas", 0)
+            dana_cnt = cnt.get("dana", 0)
+            bas_amt = amt.get("bas", 0)
+            dana_amt = amt.get("dana", 0)
+            internal_price = bas_amt / bas_cnt if bas_cnt > 0 else 0
+            dana_price = dana_amt / dana_cnt if dana_cnt > 0 else 0
+            diff_per_unit = dana_price - internal_price
+            total_impact = dana_amt - bas_amt
+            pricing_breakdown.append({
+                "partner_sku": sku,
+                "internal_price": int(internal_price),
+                "dana_price": int(dana_price),
+                "diff_per_unit": int(diff_per_unit),
+                "transaction_count": int(bas_cnt),
+                "total_impact": int(total_impact),
+            })
+        pricing_breakdown.sort(key=lambda x: abs(x["total_impact"]), reverse=True)
+
     return {
         "trx_date": trx_date,
         "columns": columns,
+        "summary_exposure": int(summary_exposure),
         "exceptions": [
             {
                 "id": e.id,
@@ -192,6 +446,8 @@ def get_drilldown(
         "total": total,
         "limit": limit,
         "offset": offset,
+        "available_types": available_types,
+        "pricing_breakdown": pricing_breakdown,
     }
 
 

@@ -75,7 +75,7 @@ type MenuItem = {
 function SidebarSection({ title, items, onNavigate }: { title: string; items: MenuItem[]; onNavigate: () => void }) {
   return (
     <div className="space-y-2">
-      <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{title}</p>
+      <p className="px-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{title}</p>
       <nav className="space-y-1.5">
         {items.map((item) => {
           const Icon = item.icon;
@@ -85,8 +85,8 @@ function SidebarSection({ title, items, onNavigate }: { title: string; items: Me
                 <Icon size={18} />
               </span>
               <span className="min-w-0">
-                <span className="block text-sm font-semibold leading-5">{item.label}</span>
-                <span className="block truncate text-xs text-slate-400">{item.description}</span>
+                <span className="block text-[13px] font-medium leading-5">{item.label}</span>
+                <span className="block truncate text-[11px] text-slate-400">{item.description}</span>
               </span>
             </>
           );
@@ -165,8 +165,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Database size={21} className="text-cyan-300" />
             </div>
             <div>
-              <h1 className="text-lg font-bold tracking-tight">ReconManager</h1>
-              <p className="text-xs text-slate-400">Financial Operations</p>
+              <h1 className="text-base font-semibold tracking-tight">ReconManager</h1>
+              <p className="text-[11px] text-slate-400">Financial Operations</p>
             </div>
           </div>
           <button onClick={() => setSidebarOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 lg:hidden">
@@ -181,18 +181,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         <div className="space-y-3 border-t border-white/10 p-4">
           <div className="flex items-center gap-3 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-            <div className="grid h-10 w-10 place-items-center rounded-full bg-slate-700 text-sm font-semibold">
+            <div className="grid h-10 w-10 place-items-center rounded-full bg-slate-700 text-xs font-medium">
               {(user as any)?.sub?.slice(0, 2)?.toUpperCase() || "FN"}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">Finance Team</p>
-              <p className="truncate text-xs text-slate-400">{(user as any)?.role || "Finance"}</p>
+              <p className="truncate text-xs font-medium">Finance Team</p>
+              <p className="truncate text-[11px] text-slate-400">{(user as any)?.role || "Finance"}</p>
             </div>
             <ShieldCheck size={17} className="text-emerald-300" />
           </div>
           <button
             onClick={logout}
-            className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+            className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-xs font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
           >
             <LogOut size={18} />
             Logout
@@ -207,8 +207,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Menu size={20} />
             </button>
             <div>
-              <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Operations Console</p>
-              <p className="text-sm font-semibold text-slate-700">BAS x DANA Reconciliation</p>
+              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400">Operations Console</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -219,8 +218,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <div className="hidden items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:flex">
               <div className="grid h-9 w-9 place-items-center rounded-full bg-slate-900 text-xs font-bold text-white">FN</div>
               <div>
-                <p className="text-sm font-semibold text-slate-900">Finance Team</p>
-                <p className="text-xs text-slate-500">{(user as any)?.sub || "Finance"}</p>
+                <p className="text-xs font-medium text-slate-900">Finance Team</p>
+                <p className="text-[11px] text-slate-500">{(user as any)?.sub || "Finance"}</p>
               </div>
             </div>
           </div>

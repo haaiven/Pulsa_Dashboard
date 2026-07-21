@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Edit3, Plus, Power, Trash2, X } from "lucide-react";
@@ -17,6 +17,7 @@ type ReconPair = {
   source_a: string;
   source_b: string;
   active: boolean;
+  settlement_direction: string;
 };
 
 type ExpectedFile = {
@@ -31,7 +32,7 @@ type ExpectedFile = {
   active: boolean;
 };
 
-const emptyPair = { pair_code: "", pair_name: "", category: "Partner", product: "pulsa", source_a: "", source_b: "", active: true };
+const emptyPair = { pair_code: "", pair_name: "", category: "Partner", product: "pulsa", source_a: "", source_b: "", active: true, settlement_direction: "RECEIVABLE" };
 const emptyExpectedFile = { recon_pair_id: 0, file_type: "INTERNAL_RECON_FILE", source: "", expected_filename_pattern: "", required: true, active: true };
 
 function StatusBadge({ active }: { active: boolean }) {
@@ -75,11 +76,18 @@ function ReconPairTab() {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<ReconPair | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState("ALL");
 
   const { data = [], isLoading } = useQuery<ReconPair[]>({
     queryKey: ["recon-pairs"],
     queryFn: async () => (await api.get("/recon-pairs")).data,
   });
+
+  const filteredPairs = useMemo(() => {
+    const order = ["Partner", "Internal", "Vendor"];
+    const filtered = categoryFilter === "ALL" ? data : data.filter((p) => p.category === categoryFilter);
+    return [...filtered].sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category));
+  }, [data, categoryFilter]);
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => api.delete(`/recon-pairs/${id}`),
@@ -93,7 +101,13 @@ function ReconPairTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between">
+        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs outline-none ring-blue-500 transition focus:ring-2">
+          <option value="ALL">All Categories</option>
+          <option value="Partner">Partner</option>
+          <option value="Internal">Internal</option>
+          <option value="Vendor">Vendor</option>
+        </select>
         <button onClick={() => { setEditing(null); setFormOpen(true); }} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">
           <Plus size={17} /> New Pair
         </button>
@@ -105,7 +119,7 @@ function ReconPairTab() {
               <Table>
                 <TableHeader><TableRow className="bg-slate-50"><TableHead>Pair Code</TableHead><TableHead>Name</TableHead><TableHead>Category</TableHead><TableHead>Sources</TableHead><TableHead>Product</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {data.map((row) => (
+                  {filteredPairs.map((row) => (
                     <TableRow key={row.id} className="hover:bg-slate-50/80">
                       <TableCell className="font-mono font-semibold text-slate-900">{row.pair_code}</TableCell>
                       <TableCell className="font-semibold text-slate-900">{row.pair_name}</TableCell>
@@ -150,6 +164,7 @@ function ReconPairForm({ initial, onClose }: { initial: ReconPair | null; onClos
         <Field label="Product" value={form.product} onChange={(v) => setForm({ ...form, product: v })} />
         <Field label="Source A" value={form.source_a} onChange={(v) => setForm({ ...form, source_a: v })} />
         <Field label="Source B" value={form.source_b} onChange={(v) => setForm({ ...form, source_b: v })} />
+        <SelectField label="Settlement Direction" value={form.settlement_direction || "RECEIVABLE"} options={["RECEIVABLE", "PAYABLE"]} onChange={(v) => setForm({ ...form, settlement_direction: v })} />
       </div>
       <Toggle label="Active" checked={form.active} onChange={(active) => setForm({ ...form, active })} />
       <FormActions onCancel={onClose} onSave={() => saveMutation.mutate()} saving={saveMutation.isPending} />

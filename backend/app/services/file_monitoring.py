@@ -9,30 +9,32 @@ from app.models.models import ExpectedFile, FileReceipt, ImportBatch, ReconPair
 
 
 INITIAL_RECON_PAIRS = [
-    ("PTR-BMD-DANA", "BMD ↔ DANA", "Partner", "pulsa", "BMD", "DANA", True),
-    ("PTR-BAS-DANA", "BAS ↔ DANA", "Partner", "pulsa", "BAS", "DANA", True),
-    ("PTR-BMD-GPICBL", "BMD ↔ GPI/CBL", "Partner", "pulsa", "BMD", "GPI/CBL", False),
-    ("PTR-BMD-GAS", "BMD ↔ GAS", "Partner", "pulsa", "BMD", "GAS", False),
-    ("PTR-BHT-IDS", "BHT ↔ IDS", "Partner", "pulsa", "BHT", "IDS", False),
-    ("PTR-BHT-MCD", "BHT ↔ MCD", "Partner", "pulsa", "BHT", "MCD", False),
-    ("PTR-BMD-JATIS", "BMD ↔ JATIS", "Partner", "pulsa", "BMD", "JATIS", False),
-    ("PTR-NCB-GPICBL", "NCB ↔ GPI/CBL", "Partner", "pln", "NCB", "GPI/CBL", False),
-    ("PTR-NCB-TOKPED", "NCB ↔ TOKPED", "Partner", "pln", "NCB", "TOKPED", False),
-    ("INT-NTSNCB-BAS", "NTS+NCB ↔ BAS", "Internal", "pulsa", "NTS+NCB", "BAS", True),
-    ("INT-NTSNCB-BMDDANA", "NTS+NCB ↔ BMD-DANA", "Internal", "pulsa", "NTS+NCB", "BMD-DANA", True),
-    ("INT-NTSNCB-BMD", "NTS+NCB ↔ BMD", "Internal", "pulsa", "NTS+NCB", "BMD", True),
-    ("VDR-BHT-TSEL", "BHT ↔ TSEL", "Vendor", "pulsa", "BHT", "TSEL", True),
-    ("VDR-NTS-AWD", "NTS ↔ AWD", "Vendor", "pulsa", "NTS", "AWD", False),
-    ("VDR-NCB-PCU", "NCB ↔ PCU", "Vendor", "pulsa", "NCB", "PCU", False),
+    ("PTR-BMD-DANA", "BMD ↔ DANA", "Partner", "pulsa", "BMD", "DANA", True, "RECEIVABLE"),
+    ("PTR-BAS-DANA", "BAS ↔ DANA", "Partner", "pulsa", "BAS", "DANA", True, "RECEIVABLE"),
+    ("PTR-BMD-GPICBL", "BMD ↔ GPI/CBL", "Partner", "pulsa", "BMD", "GPI/CBL", False, "RECEIVABLE"),
+    ("PTR-BMD-GAS", "BMD ↔ GAS", "Partner", "pulsa", "BMD", "GAS", False, "RECEIVABLE"),
+    ("PTR-BHT-IDS", "BHT ↔ IDS", "Partner", "pulsa", "BHT", "IDS", False, "RECEIVABLE"),
+    ("PTR-BHT-MCD", "BHT ↔ MCD", "Partner", "pulsa", "BHT", "MCD", False, "RECEIVABLE"),
+    ("PTR-BMD-JATIS", "BMD ↔ JATIS", "Partner", "pulsa", "BMD", "JATIS", False, "RECEIVABLE"),
+    ("PTR-NCB-GPICBL", "NCB ↔ GPI/CBL", "Partner", "pln", "NCB", "GPI/CBL", False, "RECEIVABLE"),
+    ("PTR-NCB-TOKPED", "NCB ↔ TOKPED", "Partner", "pln", "NCB", "TOKPED", False, "RECEIVABLE"),
+    ("INT-NTSNCB-BAS", "NTS+NCB ↔ BAS", "Internal", "pulsa", "NTS+NCB", "BAS", True, "RECEIVABLE"),
+    ("INT-NTSNCB-BMDDANA", "NTS+NCB ↔ BMD-DANA", "Internal", "pulsa", "NTS+NCB", "BMD-DANA", True, "RECEIVABLE"),
+    ("INT-NTSNCB-BMD", "NTS+NCB ↔ BMD", "Internal", "pulsa", "NTS+NCB", "BMD", True, "RECEIVABLE"),
+    ("VDR-BHT-TSEL", "BHT ↔ TSEL", "Vendor", "pulsa", "BHT", "TSEL", True, "PAYABLE"),
+    ("VDR-NTS-AWD", "NTS ↔ AWD", "Vendor", "pulsa", "NTS", "AWD", False, "PAYABLE"),
+    ("VDR-NCB-PCU", "NCB ↔ PCU", "Vendor", "pulsa", "NCB", "PCU", False, "PAYABLE"),
 ]
 
 INITIAL_EXPECTED_FILES = [
     ("PTR-BAS-DANA", "INTERNAL_RECON_FILE", "BAS", "bas_dana_DDMMYYYY.xlsx", True, True),
-    ("PTR-BAS-DANA", "EXTERNAL_PARTNER_FILE", "DANA", "TRX_DD_MON_YYYY.csv", True, True),
+    ("PTR-BAS-DANA", "EXTERNAL_PARTNER_FILE", "DANA", "MERCHANT_SETTLEMENT_{MID}_{YYYYMMDD}.csv", True, True),
     ("PTR-BMD-DANA", "INTERNAL_RECON_FILE", "BMD", "bmd_dana_DDMMYYYY.xlsx", True, True),
     ("PTR-BMD-DANA", "EXTERNAL_PARTNER_FILE", "DANA", "MERCHANT_SETTLEMENT_{MID}_{YYYYMMDD}.csv", True, True),
     ("VDR-BHT-TSEL", "INTERNAL_RECON_FILE", "BHT", "bht_tsel_DDMMYYYY.xlsx", True, True),
     ("VDR-BHT-TSEL", "VENDOR_SETTLEMENT_FILE", "TSEL", "TSEL_DDMMYYYY.xlsx", True, True),
+    ("VDR-NTS-AWD", "INTERNAL_RECON_FILE", "NTS", "nts_awd_DDMMYYYY.xlsx", True, True),
+    ("VDR-NTS-AWD", "VENDOR_SETTLEMENT_FILE", "AWD", "AWD_DDMMYYYY.xlsx", True, True),
 ]
 
 MONTHS = {
@@ -57,7 +59,7 @@ MONTHS = {
 
 def seed_recon_configuration(db: Session):
     if db.query(ReconPair).count() == 0:
-        for pair_code, pair_name, category, product, source_a, source_b, active in INITIAL_RECON_PAIRS:
+        for pair_code, pair_name, category, product, source_a, source_b, active, direction in INITIAL_RECON_PAIRS:
             db.add(ReconPair(
                 pair_code=pair_code,
                 pair_name=pair_name,
@@ -66,6 +68,7 @@ def seed_recon_configuration(db: Session):
                 source_a=source_a,
                 source_b=source_b,
                 active=active,
+                settlement_direction=direction,
             ))
         db.flush()
 
@@ -147,6 +150,7 @@ def match_expected_file(db: Session, file_name: str) -> tuple[ExpectedFile | Non
 
 def detect_recon_pair_from_name(db: Session, file_name: str) -> ReconPair | None:
     normalized = _normalize(file_name.replace("recon", ""))
+    is_recon_file = file_name.lower().startswith("recon_")
     for pair in db.query(ReconPair).filter(ReconPair.active.is_(True)).all():
         candidates = {
             _normalize(pair.pair_code),
@@ -156,6 +160,10 @@ def detect_recon_pair_from_name(db: Session, file_name: str) -> ReconPair | None
         }
         if any(candidate and candidate in normalized for candidate in candidates):
             return pair
+        if is_recon_file:
+            sb = _normalize(pair.source_b)
+            if sb and sb in normalized and len(pair.source_b) >= 3:
+                return pair
     return None
 
 
@@ -185,7 +193,7 @@ def create_file_receipt(
     return receipt
 
 
-def process_source_file(file_name: str, db: Session) -> ImportBatch:
+def process_source_file(file_name: str, db: Session, file_bytes: bytes | None = None, file_size: int | None = None, trx_date: datetime.date | None = None) -> ImportBatch:
     expected_file, file_date = match_expected_file(db, file_name)
     if not expected_file:
         raise ValueError(f"No active Expected File matches filename: {file_name}")
@@ -194,13 +202,32 @@ def process_source_file(file_name: str, db: Session) -> ImportBatch:
     batch = ImportBatch(
         batch_no=batch_no,
         upload_date=file_date,
+        trx_date=trx_date or file_date,
         file_name=file_name,
+        file_size=file_size,
         sheet_name="source_file",
         records=1,
         status="SUCCESS",
     )
     db.add(batch)
     db.flush()
+
+    if file_bytes and file_name.lower().endswith(".csv"):
+        import io
+        import pandas as pd
+        df = pd.read_csv(io.BytesIO(file_bytes))
+        settle_col = None
+        divisor = 1
+        if "settle_amount_idr" in df.columns:
+            settle_col = "settle_amount_idr"
+        elif "SETTLE_AMOUNT" in df.columns:
+            settle_col = "SETTLE_AMOUNT"
+            divisor = 100
+        if settle_col:
+            total = int(df[settle_col].sum() / divisor)
+            batch.source_settlement_total = total
+            batch.records = len(df)
+
     create_file_receipt(db, file_name, "SOURCE", batch, expected_file, file_date=file_date)
     db.commit()
     db.refresh(batch)
@@ -216,7 +243,10 @@ def record_recon_upload(db: Session, batch: ImportBatch, file_name: str):
 
     pair = detect_recon_pair_from_name(db, file_name)
     if pair:
-        create_file_receipt(db, file_name, "RECON", batch, recon_pair=pair, file_date=batch.upload_date)
+        file_date = batch.trx_date or batch.upload_date
+        for ef in pair.expected_files:
+            if ef.active and ef.required:
+                create_file_receipt(db, file_name, "RECON", batch, expected_file=ef, file_date=file_date)
         db.commit()
 
 

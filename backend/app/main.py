@@ -22,6 +22,11 @@ def _migrate_schema():
             conn.commit()
             logging.info("Added column chksum_value to summary_rows")
 
+        if "recon_pair_id" not in cols:
+            conn.execute(text("ALTER TABLE summary_rows ADD COLUMN recon_pair_id INTEGER REFERENCES recon_pairs(id)"))
+            conn.commit()
+            logging.info("Added column recon_pair_id to summary_rows")
+
     with engine.connect() as conn:
         result = conn.execute(text("PRAGMA table_info(exception_details)"))
         cols = [row[1] for row in result]
@@ -29,6 +34,38 @@ def _migrate_schema():
             conn.execute(text("ALTER TABLE exception_details ADD COLUMN raw_data TEXT"))
             conn.commit()
             logging.info("Added column raw_data to exception_details")
+
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info(import_batches)"))
+        cols = [row[1] for row in result]
+        if "file_size" not in cols:
+            conn.execute(text("ALTER TABLE import_batches ADD COLUMN file_size INTEGER"))
+            conn.commit()
+            logging.info("Added column file_size to import_batches")
+        if "trx_date" not in cols:
+            conn.execute(text("ALTER TABLE import_batches ADD COLUMN trx_date DATE"))
+            conn.commit()
+            logging.info("Added column trx_date to import_batches")
+        if "source_settlement_total" not in cols:
+            conn.execute(text("ALTER TABLE import_batches ADD COLUMN source_settlement_total INTEGER"))
+            conn.commit()
+            logging.info("Added column source_settlement_total to import_batches")
+
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info(recon_pairs)"))
+        cols = [row[1] for row in result]
+        if "settlement_direction" not in cols:
+            conn.execute(text("ALTER TABLE recon_pairs ADD COLUMN settlement_direction TEXT DEFAULT 'RECEIVABLE'"))
+            conn.commit()
+            logging.info("Added column settlement_direction to recon_pairs")
+
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info(daily_summaries)"))
+        cols = [row[1] for row in result]
+        if "recon_pair_id" not in cols:
+            conn.execute(text("ALTER TABLE daily_summaries ADD COLUMN recon_pair_id INTEGER REFERENCES recon_pairs(id)"))
+            conn.commit()
+            logging.info("Added column recon_pair_id to daily_summaries")
 
 
 @asynccontextmanager
