@@ -1,0 +1,11 @@
+.git
+**/node_modules
+**/.next
+**/.venv
+**/__pycache__
+**/pulsa.db
+*.log
+docs
+image-excel.jpeg
+Dockerfile
+docker-entrypoint.sh
