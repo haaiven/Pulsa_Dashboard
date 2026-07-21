@@ -6,7 +6,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import api from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowUpRight, CheckCircle2, Eye, Filter, Layers, Search } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, Layers } from "lucide-react";
 
 type ReconPair = {
   id: number;
@@ -74,8 +74,6 @@ function buildDrilldownUrl(date?: string, type?: string, sourceA?: string, sourc
 }
 
 export default function OverviewPage() {
-  const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [selectedPairId, setSelectedPairId] = useState<number | undefined>(undefined);
   const [filterDate, setFilterDate] = useState("");
 
@@ -113,12 +111,6 @@ export default function OverviewPage() {
   const sourceB: string = data?.source_b || "DANA";
   const settlementDirection: string = data?.settlement_direction || "RECEIVABLE";
 
-  const { data: drilldown } = useQuery({
-    queryKey: ["overview-drilldown", trxDate],
-    queryFn: async () => (await api.get("/dashboard/drilldown", { params: { trx_date: trxDate, limit: 500, offset: 0 } })).data,
-    enabled: !!trxDate,
-  });
-
   const categoryStyles: Record<string, { color: string; bg: string }> = {
     PRICE_MISMATCH: { color: "#f97316", bg: "bg-orange-50 text-orange-700 ring-orange-200" },
     DANA_ONLY_EXT_CHECK: { color: "#ef4444", bg: "bg-red-50 text-red-700 ring-red-200" },
@@ -142,25 +134,6 @@ export default function OverviewPage() {
       .filter((e) => e.transaction_count > 0 && e.exception_type !== "FORCE_FAILED")
       .map((e) => ({ ...e, abs_amount: Math.abs(e.difference_amount) }));
   }, [exceptionSummaries]);
-
-  const categoryOptions = useMemo(() => {
-    return exceptionSummaries.map((es) => ({
-      type: es.exception_type,
-      label: es.label,
-    }));
-  }, [exceptionSummaries]);
-
-  const topExceptions = useMemo(() => {
-    const items = drilldown?.exceptions || [];
-    return items
-      .filter((row: any) => {
-        const term = search.toLowerCase();
-        const matchesSearch = !term || [row.reference_number, row.product_code, row.reason, row.exception_type].some((value) => String(value || "").toLowerCase().includes(term));
-        const matchesCategory = categoryFilter === "ALL" || row.exception_type === categoryFilter;
-        return matchesSearch && matchesCategory;
-      })
-      .slice(0, 8);
-  }, [drilldown, search, categoryFilter]);
 
   if (isLoading && !data) return <div className="py-16 text-center text-slate-500">Loading reconciliation dashboard...</div>;
 
@@ -251,7 +224,7 @@ export default function OverviewPage() {
         {/* Card 5: Settlement Difference */}
         <Card
           className="border-slate-200 bg-white shadow-sm cursor-pointer transition hover:border-red-200 hover:shadow-md"
-          onClick={() => { window.location.href = buildDrilldownUrl(trxDate, undefined, sourceA, sourceB, selectedPairId) + "&exclude=FORCE_FAILED"; }}
+          onClick={() => { window.location.href = buildDrilldownUrl(trxDate, undefined, sourceA, sourceB, selectedPairId); }}
         >
           <CardContent className="p-4">
             <p className="text-xs font-medium text-slate-600">Settlement Difference</p>
@@ -386,90 +359,8 @@ export default function OverviewPage() {
             </div>
           </CardContent>
         </Card>
+        </div>
       </div>
-
-      <Card className="overflow-hidden border-slate-200 bg-white shadow-sm">
-        <CardHeader className="border-b border-slate-100">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div>
-              <CardTitle className="text-sm font-semibold text-slate-950">Top Exception Table</CardTitle>
-              <p className="mt-1 text-xs text-slate-500">Data transaksi memakai sumber drilldown yang sudah tersedia.</p>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search transaction, product, reason..."
-                  className="h-9 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-xs outline-none ring-blue-500 transition focus:ring-2 sm:w-72"
-                />
-              </div>
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs outline-none ring-blue-500 transition focus:ring-2"
-              >
-                <option value="ALL">All Categories</option>
-                {categoryOptions.map((cat) => (
-                  <option key={cat.type} value={cat.type}>{cat.label}</option>
-                ))}
-              </select>
-              <button className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700">
-                <Filter size={14} /> Filters
-              </button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-slate-50">
-                  <TableHead>Transaction ID</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead>Dataset A ({sourceA})</TableHead>
-                  <TableHead>Dataset B ({sourceB})</TableHead>
-                  <TableHead>Reason</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {topExceptions.map((row: any) => {
-                  const cat = exceptionSummaries.find((es) => es.exception_type === row.exception_type);
-                  return (
-                    <TableRow key={row.id} className="hover:bg-slate-50/80">
-                      <TableCell className="max-w-[240px] truncate font-mono text-[11px] text-slate-700">{row.reference_number || "-"}</TableCell>
-                      <TableCell><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${cat?.style.bg || "bg-slate-50 text-slate-700 ring-slate-200"}`}>{cat?.label || row.exception_type}</span></TableCell>
-                      <TableCell><span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-amber-200">Review</span></TableCell>
-                      <TableCell className="text-right font-semibold tabular-nums text-red-600 text-xs">{fmtCurrency(Math.abs(row.diff_value || row.amount || 0))}</TableCell>
-                      <TableCell className="text-xs text-slate-600">{row.bas_value ? fmtCurrency(row.bas_value) : "Not Found"}</TableCell>
-                      <TableCell className="text-xs text-slate-600">{row.dana_value ? fmtCurrency(row.dana_value) : "Not Found"}</TableCell>
-                      <TableCell className="max-w-xs truncate text-xs text-slate-600">{row.reason || "Requires reconciliation review"}</TableCell>
-                      <TableCell className="text-right">
-                        <button
-                          onClick={() => { window.location.href = buildDrilldownUrl(trxDate, row.exception_type, sourceA, sourceB); }}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                        >
-                          <Eye size={16} />
-                        </button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                {topExceptions.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={8} className="py-12 text-center text-xs text-slate-400">No exception transactions available</TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
   );
 }
 

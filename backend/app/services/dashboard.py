@@ -126,10 +126,12 @@ def get_overview(db: Session, start_date=None, end_date=None, pair_id: int | Non
 
         ds_q = db.query(DailySummary.id).filter(DailySummary.trx_date == latest_date)
         if pair_id is not None:
-            ds_q = ds_q.filter(
-                (DailySummary.recon_pair_id == pair_id) | (DailySummary.recon_pair_id.is_(None))
-            )
-        ds_ids = [r.id for r in ds_q.all()]
+            pair_q = ds_q.filter(DailySummary.recon_pair_id == pair_id)
+            ds_ids = [r.id for r in pair_q.all()]
+            if not ds_ids:
+                ds_ids = [r.id for r in ds_q.filter(DailySummary.recon_pair_id.is_(None)).all()]
+        else:
+            ds_ids = [r.id for r in ds_q.all()]
         exception_summaries: list[dict[str, Any]] = []
         if ds_ids:
             agg = (
