@@ -151,7 +151,9 @@ def match_expected_file(db: Session, file_name: str) -> tuple[ExpectedFile | Non
 def detect_recon_pair_from_name(db: Session, file_name: str) -> ReconPair | None:
     normalized = _normalize(file_name.replace("recon", ""))
     is_recon_file = file_name.lower().startswith("recon_")
-    for pair in db.query(ReconPair).filter(ReconPair.active.is_(True)).all():
+    pairs = list(db.query(ReconPair).filter(ReconPair.active.is_(True)).all())
+
+    for pair in pairs:
         candidates = {
             _normalize(pair.pair_code),
             _normalize(pair.pair_name),
@@ -160,10 +162,13 @@ def detect_recon_pair_from_name(db: Session, file_name: str) -> ReconPair | None
         }
         if any(candidate and candidate in normalized for candidate in candidates):
             return pair
-        if is_recon_file:
+
+    if is_recon_file:
+        for pair in pairs:
             sb = _normalize(pair.source_b)
             if sb and sb in normalized and len(pair.source_b) >= 3:
                 return pair
+
     return None
 
 
