@@ -144,12 +144,12 @@ export default function DrilldownPage() {
     if (!isPricing) return [];
     const groups = new Map<string, { master_code: string; count: number; price: number; hpp_partner: number; settle_amount_idr: number; total_selisih: number; items: any[] }>();
     for (const ex of filteredExceptions) {
-      const mc = ex.raw_data?.master_code_db || ex.raw_data?.master_code || "Unknown";
+      const mc = ex.raw_data?.master_code || ex.raw_data?.partner_sku || ex.raw_data?.master_code_db || ex.raw_data?.partner_sku_db || "Unknown";
       if (!groups.has(mc)) {
         groups.set(mc, {
           master_code: mc,
           count: 0,
-          price: parseFloat(ex.raw_data?.price_db || ex.raw_data?.price || "0"),
+          price: parseFloat(ex.raw_data?.price || ex.raw_data?.price_db || "0"),
           hpp_partner: parseFloat(ex.raw_data?.hpp_partner || "0"),
           settle_amount_idr: parseFloat(ex.raw_data?.settle_amount_idr || "0"),
           total_selisih: 0,
