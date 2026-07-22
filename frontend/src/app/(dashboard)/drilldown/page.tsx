@@ -89,11 +89,13 @@ export default function DrilldownPage() {
     setOffset(0);
   };
 
+  const effectiveType = categoryFilter !== "ALL" ? categoryFilter : exceptionType;
+
   const { data, isLoading } = useQuery({
-    queryKey: ["drilldown", date, exceptionType, offset, search, pairId],
+    queryKey: ["drilldown", date, effectiveType, offset, search, pairId],
     queryFn: async () => {
       const q = new URLSearchParams({ trx_date: date!, limit: String(limit), offset: String(offset) });
-      if (exceptionType) q.set("exception_type", exceptionType);
+      if (effectiveType) q.set("exception_type", effectiveType);
       if (search) q.set("q", search);
       if (pairId) q.set("pair_id", pairId);
       return (await api.get(`/dashboard/drilldown?${q.toString()}`)).data;
@@ -103,8 +105,8 @@ export default function DrilldownPage() {
 
   const dynamicCols = useMemo(() => {
     const allCols: string[] = data?.columns || [];
-    if (exceptionType && TYPE_COLUMNS[exceptionType]) {
-      const ordered = TYPE_COLUMNS[exceptionType];
+    if (effectiveType && TYPE_COLUMNS[effectiveType]) {
+      const ordered = TYPE_COLUMNS[effectiveType];
       return ordered.filter((col) => allCols.includes(col));
     }
     return allCols;
@@ -140,7 +142,7 @@ export default function DrilldownPage() {
   }, [data?.available_types, excludeType]);
 
   const pricingGroups = useMemo(() => {
-    const isPricing = exceptionType === "PRICE_MISMATCH" || categoryFilter === "PRICE_MISMATCH";
+    const isPricing = effectiveType === "PRICE_MISMATCH";
     if (!isPricing) return [];
     const groups = new Map<string, { master_code: string; count: number; price: number; hpp_partner: number; settle_amount_idr: number; total_selisih: number; items: any[] }>();
     for (const ex of filteredExceptions) {
@@ -248,7 +250,7 @@ export default function DrilldownPage() {
 
           {isLoading ? (
             <div className="py-16 text-center text-slate-500">Loading transaction details...</div>
-          ) : (exceptionType === "PRICE_MISMATCH" || categoryFilter === "PRICE_MISMATCH") && pricingGroups.length > 0 ? (
+          ) : effectiveType === "PRICE_MISMATCH" && pricingGroups.length > 0 ? (
             skuFilter !== "ALL" ? (
               <>
                 {(() => {

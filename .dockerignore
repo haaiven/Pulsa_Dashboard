@@ -1,0 +1,44 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+start.sh
+Dockerfile
+.dockerignore
+README.md
+docs/
+
+# Python/backend
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/pulsa.db
+backend/*.db
+*.py[cod]
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.turbo/
+frontend/.eslintcache
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+
+# Data files
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+*.sqlite
+*.sqlite3
