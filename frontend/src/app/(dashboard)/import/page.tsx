@@ -9,8 +9,6 @@ import api from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-const API_HOST = typeof window !== "undefined" ? window.location.protocol + "//" + window.location.hostname + ":8000" : "http://localhost:8000";
-
 const statusClass: Record<string, string> = {
   SUCCESS: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   FAILED: "bg-red-50 text-red-700 ring-red-200",
@@ -132,17 +130,13 @@ export default function ImportPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_HOST}/import/excel`, { method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {}, body: formData });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.detail || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      setResult(data);
+      const res = await api.post("/import/excel", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setResult(res.data);
       refreshAll();
     } catch (err: any) {
-      setResult({ status: "FAILED", error: err.message });
+      setResult({ status: "FAILED", error: err.response?.data?.detail || err.message });
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
