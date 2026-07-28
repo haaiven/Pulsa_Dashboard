@@ -17,6 +17,7 @@ backend/.pytest_cache/
 backend/.ruff_cache/
 backend/pulsa.db
 backend/*.db
+backend/uploads/
 *.py[cod]
 
 # Frontend

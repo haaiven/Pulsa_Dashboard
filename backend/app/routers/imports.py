@@ -1,9 +1,14 @@
 import datetime
 import logging
+import os
 import re
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+import threading
+import uuid
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session, joinedload
-from app.database import get_db
+
+from app.database import SessionLocal, engine, get_db
 from app.models.models import ImportBatch, SummaryRow, DailySummary, ReconResult, ExceptionDetail, FileReceipt, ReconPair
 from app.schemas.schemas import ImportBatchOut, ExceptionDetailOut
 from app.services.excel_import import process_excel_file, process_image_file
@@ -29,6 +34,69 @@ def _parse_date_from_filename(filename: str) -> datetime.date | None:
     return None
 
 
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+def _process_background(file_path: str, batch_id: int):
+    db = SessionLocal()
+    try:
+        batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
+        if not batch:
+            return
+
+        with open(file_path, "rb") as fh:
+            file_bytes = fh.read()
+
+        file_size = len(file_bytes)
+        trx_date = _parse_date_from_filename(batch.file_name)
+        ext = "." + batch.file_name.rsplit(".", 1)[-1].lower() if "." in batch.file_name else ""
+
+        if ext in IMAGE_EXTENSIONS:
+            process_image_file(file_bytes, batch.file_name, db, file_size, trx_date)
+        elif ext in EXCEL_EXTENSIONS:
+            expected_file, _ = match_expected_file(db, batch.file_name)
+            is_recon_file = batch.file_name.lower().startswith("recon_")
+            if expected_file and not is_recon_file:
+                process_source_file(batch.file_name, db, file_bytes, file_size, trx_date)
+            else:
+                recon_pair_id: int | None = None
+                if expected_file and expected_file.recon_pair_id:
+                    recon_pair_id = expected_file.recon_pair_id
+                else:
+                    pair = detect_recon_pair_from_name(db, batch.file_name)
+                    if pair:
+                        recon_pair_id = pair.id
+                result_batch = process_excel_file(file_bytes, batch.file_name, db, recon_pair_id, file_size, trx_date)
+                record_recon_upload(db, result_batch, batch.file_name)
+            batch.status = "SUCCESS"
+        elif ext in SOURCE_EXTENSIONS:
+            process_source_file(batch.file_name, db, file_bytes, file_size, trx_date)
+            batch.status = "SUCCESS"
+        else:
+            batch.status = "FAILED"
+
+        batch.records = batch.records or 0
+        db.commit()
+        logger.info(f"Background processing complete: {batch.file_name}")
+
+    except Exception as e:
+        logger.error(f"Background processing failed for {batch.file_name}: {e}")
+        try:
+            batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
+            if batch:
+                batch.status = "FAILED"
+                db.commit()
+        except Exception:
+            pass
+    finally:
+        db.close()
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+
+
 @router.post("/import/excel")
 async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename:
@@ -38,38 +106,38 @@ async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_d
     file_size = len(file_bytes)
     trx_date = _parse_date_from_filename(file.filename)
     ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    batch_no = f"BATCH-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
 
-    try:
-        if ext in IMAGE_EXTENSIONS:
-            batch = process_image_file(file_bytes, file.filename, db, file_size, trx_date)
-        elif ext in EXCEL_EXTENSIONS:
-            expected_file, _ = match_expected_file(db, file.filename)
-            is_recon_file = file.filename.lower().startswith("recon_")
-            if expected_file and not is_recon_file:
-                batch = process_source_file(file.filename, db, file_bytes, file_size, trx_date)
-            else:
-                recon_pair_id: int | None = None
-                if expected_file and expected_file.recon_pair_id:
-                    recon_pair_id = expected_file.recon_pair_id
-                else:
-                    pair = detect_recon_pair_from_name(db, file.filename)
-                    if pair:
-                        recon_pair_id = pair.id
-                batch = process_excel_file(file_bytes, file.filename, db, recon_pair_id, file_size, trx_date)
-                record_recon_upload(db, batch, file.filename)
-        elif ext in SOURCE_EXTENSIONS:
-            batch = process_source_file(file.filename, db, file_bytes, file_size, trx_date)
-        else:
-            raise HTTPException(400, f"Unsupported file type: {ext}. Use Excel (.xlsx/.xls), CSV, text, or image files.")
-    except Exception as e:
-        logger.error(f"Import error: {e}")
-        raise HTTPException(500, str(e))
+    if ext not in IMAGE_EXTENSIONS | EXCEL_EXTENSIONS | SOURCE_EXTENSIONS:
+        raise HTTPException(400, f"Unsupported file type: {ext}")
+
+    upload_id = uuid.uuid4().hex
+    file_path = os.path.join(UPLOAD_DIR, f"{upload_id}_{file.filename}")
+
+    with open(file_path, "wb") as fh:
+        fh.write(file_bytes)
+
+    batch = ImportBatch(
+        batch_no=batch_no,
+        file_name=file.filename,
+        status="PROCESSING",
+        records=0,
+        file_size=file_size,
+        trx_date=trx_date,
+        upload_date=datetime.date.today(),
+        sheet_name="",
+    )
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+
+    threading.Thread(target=_process_background, args=(file_path, batch.id), daemon=True).start()
 
     return {
         "batch_no": batch.batch_no,
         "file_name": batch.file_name,
-        "records": batch.records,
-        "status": batch.status,
+        "records": 0,
+        "status": "PROCESSING",
     }
 
 
