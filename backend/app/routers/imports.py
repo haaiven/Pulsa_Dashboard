@@ -4,6 +4,7 @@ import os
 import queue
 import re
 import threading
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -41,6 +42,18 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 _import_queue: queue.Queue = queue.Queue()
 _worker_started = False
 _worker_lock = threading.Lock()
+
+
+def _commit_with_retry(db: Session, max_retries: int = 5):
+    for attempt in range(max_retries):
+        try:
+            db.commit()
+            return
+        except Exception:
+            if attempt < max_retries - 1:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            raise
 
 
 def _worker():
@@ -136,7 +149,7 @@ async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_d
         sheet_name="",
     )
     db.add(batch)
-    db.commit()
+    _commit_with_retry(db)
     db.refresh(batch)
 
     _ensure_worker()
