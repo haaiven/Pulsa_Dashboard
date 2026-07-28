@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.database import engine, SessionLocal
 from app.models.models import Base, User
-from app.routers import auth, master, dashboard, imports
+from app.routers import auth, master, dashboard, imports, forecast
 from app.services.auth import seed_users, get_password_hash
 from app.services.file_monitoring import seed_recon_configuration
 
@@ -95,6 +95,7 @@ app.include_router(auth.router)
 app.include_router(master.router)
 app.include_router(dashboard.router)
 app.include_router(imports.router)
+app.include_router(forecast.router)
 
 
 @app.get("/")

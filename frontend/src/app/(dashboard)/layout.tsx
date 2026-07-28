@@ -15,6 +15,7 @@ import {
   LogOut,
   Menu,
   ShieldCheck,
+  TrendingUp,
   WalletCards,
   X,
 } from "lucide-react";
@@ -25,6 +26,13 @@ const mainItems = [
     label: "Reconciliation",
     description: "Dashboard & Overview",
     icon: ArrowRightLeft,
+    disabled: false,
+  },
+  {
+    href: "/forecast",
+    label: "Pulsa Forecast",
+    description: "Proyeksi Kebutuhan Pulsa",
+    icon: TrendingUp,
     disabled: false,
   },
   {
