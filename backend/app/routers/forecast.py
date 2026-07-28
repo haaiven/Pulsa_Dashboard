@@ -12,7 +12,7 @@ from app.services.auth import get_current_user
 
 logger = logging.getLogger("forecast")
 
-router = APIRouter(prefix="/api", tags=["forecast"])
+router = APIRouter(tags=["forecast"])
 
 BASE_AVG = {
     "S5":  [1430, 1400, 1350, 1420, 1380, 1300, 1150],
