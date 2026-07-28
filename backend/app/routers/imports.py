@@ -52,13 +52,13 @@ def _worker():
 
         db = SessionLocal()
         try:
+            with open(file_path, "rb") as fh:
+                file_bytes = fh.read()
+
             batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
             if not batch:
                 _import_queue.task_done()
                 continue
-
-            with open(file_path, "rb") as fh:
-                file_bytes = fh.read()
 
             file_size = len(file_bytes)
             trx_date = _parse_date_from_filename(batch.file_name)
@@ -84,29 +84,15 @@ def _worker():
             elif ext in SOURCE_EXTENSIONS:
                 process_source_file(batch.file_name, db, file_bytes, file_size, trx_date)
 
-            batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
-            if batch and batch.status == "PROCESSING":
-                batch.status = "SUCCESS"
-                db.commit()
-
-            logger.info(f"Worker processed: {batch.file_name}")
-
         except Exception as e:
-            logger.error(f"Worker failed for batch {batch_id}: {e}")
-            try:
-                batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
-                if batch:
-                    batch.status = "FAILED"
-                    db.commit()
-            except Exception:
-                pass
+            logger.error(f"Worker failed for {batch_id}: {e}")
         finally:
             db.close()
+            _import_queue.task_done()
             try:
                 os.remove(file_path)
             except OSError:
                 pass
-            _import_queue.task_done()
 
 
 def _ensure_worker():
@@ -126,10 +112,7 @@ async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_d
         raise HTTPException(400, "No file provided")
 
     file_bytes = await file.read()
-    file_size = len(file_bytes)
-    trx_date = _parse_date_from_filename(file.filename)
     ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-    batch_no = f"BATCH-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
 
     if ext not in IMAGE_EXTENSIONS | EXCEL_EXTENSIONS | SOURCE_EXTENSIONS:
         raise HTTPException(400, f"Unsupported file type: {ext}")
@@ -140,13 +123,15 @@ async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_d
     with open(file_path, "wb") as fh:
         fh.write(file_bytes)
 
+    batch_no = f"BATCH-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{upload_id[:6].upper()}"
+
     batch = ImportBatch(
         batch_no=batch_no,
         file_name=file.filename,
         status="PROCESSING",
         records=0,
-        file_size=file_size,
-        trx_date=trx_date,
+        file_size=len(file_bytes),
+        trx_date=_parse_date_from_filename(file.filename),
         upload_date=datetime.date.today(),
         sheet_name="",
     )
@@ -155,7 +140,6 @@ async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_d
     db.refresh(batch)
 
     _ensure_worker()
-
     _import_queue.put((file_path, batch.id))
 
     return {
