@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { TrendingUp, Loader2, CalendarDays, Package } from "lucide-react";
+import { TrendingUp, Loader2, CalendarDays, Package, Download, FileSpreadsheet, FileText } from "lucide-react";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import api from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -44,6 +47,75 @@ export default function ForecastPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleExportExcel() {
+    if (!result) return;
+
+    const header = ["SKU", "Stok", "Total Kebutuhan", "Selisih", "New Qty"];
+    const rows = result.forecast.map((r) => [
+      r.sku,
+      r.stok,
+      r.total_kebutuhan,
+      r.selisih,
+      r.new_qty,
+    ]);
+
+    const infoRows = [
+      [`Proyeksi: ${startDate} s/d ${endDate}`, "", "", "", ""],
+      [`Total Hari: ${result.total_hari}`, "", "", "", ""],
+      [`${result.days_used.join(" · ")}`, "", "", "", ""],
+      ["", "", "", "", ""],
+    ];
+
+    const data = [...infoRows, header, ...rows];
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"] = [
+      { wch: 10 },
+      { wch: 14 },
+      { wch: 20 },
+      { wch: 14 },
+      { wch: 12 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, "Forecast");
+    XLSX.writeFile(wb, `forecast_${startDate}_${endDate}.xlsx`);
+  }
+
+  function handleExportPdf() {
+    if (!result) return;
+
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(14);
+    doc.text("Pulsa Forecast", 14, 18);
+    doc.setFontSize(10);
+    doc.text(`Proyeksi: ${startDate} s/d ${endDate}`, 14, 26);
+    doc.text(`Total Hari: ${result.total_hari}`, 14, 32);
+
+    const head = [["SKU", "Stok", "Total Kebutuhan", "Selisih", "New Qty"]];
+    const body = result.forecast.map((r) => [
+      r.sku,
+      r.stok.toLocaleString("id-ID"),
+      r.total_kebutuhan.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      r.selisih.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      r.new_qty.toLocaleString("id-ID"),
+    ]);
+
+    autoTable(doc, {
+      head,
+      body,
+      startY: 38,
+      styles: { fontSize: 9, cellPadding: 4 },
+      headStyles: { fillColor: [6, 27, 56], textColor: 255 },
+      columnStyles: {
+        1: { halign: "right" },
+        2: { halign: "right" },
+        3: { halign: "right" },
+        4: { halign: "right" },
+      },
+    });
+
+    doc.save(`forecast_${startDate}_${endDate}.pdf`);
   }
 
   return (
@@ -102,15 +174,35 @@ export default function ForecastPage() {
       {result && (
         <Card className="overflow-hidden border-slate-200 bg-white shadow-sm">
           <CardHeader className="border-b border-slate-100">
-            <CardTitle className="text-base font-bold text-slate-950">Hasil Proyeksi</CardTitle>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-200">
-                <CalendarDays size={14} />
-                {result.total_hari} hari
-              </span>
-              <span className="text-xs text-slate-500">
-                {result.days_used.join(" · ")}
-              </span>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="text-base font-bold text-slate-950">Hasil Proyeksi</CardTitle>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-200">
+                    <CalendarDays size={14} />
+                    {result.total_hari} hari
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    {result.days_used.join(" · ")}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExportExcel}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                >
+                  <FileSpreadsheet size={15} />
+                  Excel
+                </button>
+                <button
+                  onClick={handleExportPdf}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100"
+                >
+                  <FileText size={15} />
+                  PDF
+                </button>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="p-0">
