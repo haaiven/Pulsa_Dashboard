@@ -75,6 +75,8 @@ def _worker():
                 _import_queue.task_done()
                 continue
 
+            logger.info(f"Worker processing: {batch.file_name}")
+
             file_size = len(file_bytes)
             trx_date = _parse_date_from_filename(batch.file_name)
             ext = "." + batch.file_name.rsplit(".", 1)[-1].lower() if "." in batch.file_name else ""
@@ -96,8 +98,10 @@ def _worker():
                             recon_pair_id = pair.id
                     result_batch = process_excel_file(file_bytes, batch.file_name, db, recon_pair_id, file_size, trx_date)
                     record_recon_upload(db, result_batch, batch.file_name)
-            elif ext in SOURCE_EXTENSIONS:
+            el            if ext in SOURCE_EXTENSIONS:
                 process_source_file(batch.file_name, db, file_bytes, file_size, trx_date)
+
+            logger.info(f"Worker completed: {batch.file_name}")
 
         except Exception as e:
             logger.exception(f"Worker failed for {batch_id}")
@@ -119,6 +123,27 @@ def ensure_import_worker():
                 t.start()
                 _worker_started = True
                 logger.info("Import worker thread started")
+                _recover_pending()
+
+
+def _recover_pending():
+    db = SessionLocal()
+    try:
+        pending = db.query(ImportBatch).filter(ImportBatch.status == "PROCESSING").all()
+        recovered = 0
+        for batch in pending:
+            for fname in os.listdir(UPLOAD_DIR):
+                if fname.endswith(batch.file_name):
+                    fpath = os.path.join(UPLOAD_DIR, fname)
+                    _import_queue.put((fpath, batch.id))
+                    recovered += 1
+                    break
+        if recovered:
+            logger.info(f"Recovered {recovered} pending files")
+    except Exception:
+        pass
+    finally:
+        db.close()
 
 
 @router.post("/import/excel")
