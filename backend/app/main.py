@@ -8,6 +8,7 @@ from app.models.models import Base, User
 from app.routers import auth, master, dashboard, imports, forecast
 from app.services.auth import seed_users, get_password_hash
 from app.services.file_monitoring import seed_recon_configuration
+from app.routers.imports import ensure_import_worker
 
 
 logging.basicConfig(level=logging.INFO)
@@ -78,6 +79,7 @@ async def lifespan(app: FastAPI):
         seed_recon_configuration(db)
     finally:
         db.close()
+    ensure_import_worker()
     yield
 
 

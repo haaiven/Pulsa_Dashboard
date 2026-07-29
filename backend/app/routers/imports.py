@@ -62,6 +62,8 @@ def _worker():
             file_path, batch_id = _import_queue.get(timeout=5)
         except queue.Empty:
             continue
+        except Exception:
+            continue
 
         db = SessionLocal()
         try:
@@ -98,7 +100,7 @@ def _worker():
                 process_source_file(batch.file_name, db, file_bytes, file_size, trx_date)
 
         except Exception as e:
-            logger.error(f"Worker failed for {batch_id}: {e}")
+            logger.exception(f"Worker failed for {batch_id}")
         finally:
             db.close()
             _import_queue.task_done()
@@ -108,7 +110,7 @@ def _worker():
                 pass
 
 
-def _ensure_worker():
+def ensure_import_worker():
     global _worker_started
     if not _worker_started:
         with _worker_lock:
@@ -152,7 +154,7 @@ async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_d
     _commit_with_retry(db)
     db.refresh(batch)
 
-    _ensure_worker()
+    ensure_import_worker()
     _import_queue.put((file_path, batch.id))
 
     return {
