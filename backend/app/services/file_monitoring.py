@@ -33,6 +33,7 @@ INITIAL_EXPECTED_FILES = [
     ("PTR-BMD-DANA", "EXTERNAL_PARTNER_FILE", "DANA", "MERCHANT_SETTLEMENT_{MID}_{YYYYMMDD}.csv", True, True),
     ("VDR-BHT-TSEL", "INTERNAL_RECON_FILE", "BHT", "bht_tsel_DDMMYYYY.xlsx", True, True),
     ("VDR-BHT-TSEL", "VENDOR_SETTLEMENT_FILE", "TSEL", "TSEL_DDMMYYYY.xlsx", True, True),
+    ("VDR-BHT-TSEL", "INTERNAL_RECON_FILE", "BHT", "recon_awd_{YYYYMMDD}.xlsx", True, True),
     ("VDR-NTS-AWD", "INTERNAL_RECON_FILE", "NTS", "nts_awd_DDMMYYYY.xlsx", True, True),
     ("VDR-NTS-AWD", "VENDOR_SETTLEMENT_FILE", "AWD", "AWD_DDMMYYYY.xlsx", True, True),
 ]
@@ -168,6 +169,12 @@ def detect_recon_pair_from_name(db: Session, file_name: str) -> ReconPair | None
             sb = _normalize(pair.source_b)
             if sb and sb in normalized and len(pair.source_b) >= 3:
                 return pair
+
+    if is_recon_file:
+        if "awd" in normalized:
+            for pair in pairs:
+                if pair.source_b.upper() == "TSEL":
+                    return pair
 
     return None
 
