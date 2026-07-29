@@ -123,27 +123,6 @@ def ensure_import_worker():
                 t.start()
                 _worker_started = True
                 logger.info("Import worker thread started")
-                _recover_pending()
-
-
-def _recover_pending():
-    db = SessionLocal()
-    try:
-        pending = db.query(ImportBatch).filter(ImportBatch.status == "PROCESSING").all()
-        recovered = 0
-        for batch in pending:
-            for fname in os.listdir(UPLOAD_DIR):
-                if fname.endswith(batch.file_name):
-                    fpath = os.path.join(UPLOAD_DIR, fname)
-                    _import_queue.put((fpath, batch.id))
-                    recovered += 1
-                    break
-        if recovered:
-            logger.info(f"Recovered {recovered} pending files")
-    except Exception:
-        pass
-    finally:
-        db.close()
 
 
 @router.post("/import/excel")
