@@ -98,7 +98,7 @@ def _worker():
                             recon_pair_id = pair.id
                     result_batch = process_excel_file(file_bytes, batch.file_name, db, recon_pair_id, file_size, trx_date)
                     record_recon_upload(db, result_batch, batch.file_name)
-            el            if ext in SOURCE_EXTENSIONS:
+            elif ext in SOURCE_EXTENSIONS:
                 process_source_file(batch.file_name, db, file_bytes, file_size, trx_date)
 
             logger.info(f"Worker completed: {batch.file_name}")
