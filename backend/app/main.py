@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
-from app.database import engine, SessionLocal
+from app.database import DATABASE_URL, engine, SessionLocal
 from app.models.models import Base, User
 from app.routers import auth, master, dashboard, imports, forecast
 from app.services.auth import seed_users, get_password_hash
@@ -15,6 +15,8 @@ logging.basicConfig(level=logging.INFO)
 
 
 def _migrate_schema():
+    if not DATABASE_URL.startswith("sqlite"):
+        return
     with engine.connect() as conn:
         result = conn.execute(text("PRAGMA table_info(summary_rows)"))
         cols = [row[1] for row in result]
