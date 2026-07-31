@@ -158,15 +158,53 @@ async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_d
     _commit_with_retry(db)
     db.refresh(batch)
 
-    ensure_import_worker()
-    _import_queue.put((file_path, batch.id))
+    try:
+        with open(file_path, "rb") as fh:
+            file_bytes = fh.read()
 
-    return {
-        "batch_no": batch.batch_no,
-        "file_name": batch.file_name,
-        "records": 0,
-        "status": "PROCESSING",
-    }
+        file_size = len(file_bytes)
+        trx_date = _parse_date_from_filename(file.filename)
+        ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+
+        if ext in IMAGE_EXTENSIONS:
+            process_image_file(file_bytes, file.filename, db, file_size, trx_date)
+        elif ext in EXCEL_EXTENSIONS:
+            expected_file, _ = match_expected_file(db, file.filename)
+            is_recon_file = file.filename.lower().startswith("recon_")
+            if expected_file and not is_recon_file:
+                process_source_file(file.filename, db, file_bytes, file_size, trx_date)
+            else:
+                recon_pair_id: int | None = None
+                if expected_file and expected_file.recon_pair_id:
+                    recon_pair_id = expected_file.recon_pair_id
+                else:
+                    pair = detect_recon_pair_from_name(db, file.filename)
+                    if pair:
+                        recon_pair_id = pair.id
+                result_batch = process_excel_file(file_bytes, file.filename, db, recon_pair_id, file_size, trx_date)
+                record_recon_upload(db, result_batch, file.filename)
+        elif ext in SOURCE_EXTENSIONS:
+            process_source_file(file.filename, db, file_bytes, file_size, trx_date)
+
+        batch = db.query(ImportBatch).filter(ImportBatch.id == batch.id).first()
+        if batch:
+            batch.status = "SUCCESS"
+            _commit_with_retry(db)
+
+        return {
+            "batch_no": batch.batch_no,
+            "file_name": batch.file_name,
+            "records": batch.records,
+            "status": batch.status,
+        }
+    except Exception as e:
+        logger.error(f"Import error: {e}")
+        raise HTTPException(500, str(e))
+    finally:
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
 
 
 @router.get("/import/history", response_model=list[ImportBatchOut])
