@@ -1,4 +1,5 @@
 import datetime
+import gc
 import logging
 import os
 import re
@@ -82,6 +83,7 @@ async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_d
             "status": result_batch.status,
         }
     except Exception as e:
+        gc.collect()
         logger.error(f"Import error: {e}")
         raise HTTPException(500, str(e))
 

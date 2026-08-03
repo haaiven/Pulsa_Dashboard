@@ -1,5 +1,6 @@
 import base64
 import datetime
+import gc
 import io
 import json
 import logging
@@ -568,6 +569,7 @@ def process_excel_file(
         db.commit()
         raise
 
+    gc.collect()
     return batch
 
 
