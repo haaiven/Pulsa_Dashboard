@@ -42,6 +42,10 @@ async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_d
     if not file.filename:
         raise HTTPException(400, "No file provided")
 
+    existing = db.query(ImportBatch).filter(ImportBatch.file_name == file.filename).first()
+    if existing:
+        raise HTTPException(409, f"File '{file.filename}' sudah pernah di-import (batch: {existing.batch_no})")
+
     file_bytes = await file.read()
     file_size = len(file_bytes)
     trx_date = _parse_date_from_filename(file.filename)
@@ -129,28 +133,6 @@ def delete_import(import_id: int, db: Session = Depends(get_db)):
     batch = db.query(ImportBatch).filter(ImportBatch.id == import_id).first()
     if not batch:
         raise HTTPException(404, "Import batch not found")
-
-    trx_date = batch.trx_date
-    recon_pair_id = None
-    if batch.file_receipts:
-        for receipt in batch.file_receipts:
-            if receipt.recon_pair_id:
-                recon_pair_id = receipt.recon_pair_id
-                break
-
-    daily_summary_ids = [
-        row.id for row in db.query(DailySummary.id).filter(DailySummary.trx_date == trx_date).all()
-    ] if trx_date else []
-    if daily_summary_ids:
-        db.query(ExceptionDetail).filter(ExceptionDetail.daily_summary_id.in_(daily_summary_ids)).delete(synchronize_session=False)
-        db.query(ReconResult).filter(ReconResult.daily_summary_id.in_(daily_summary_ids)).delete(synchronize_session=False)
-        db.query(DailySummary).filter(DailySummary.id.in_(daily_summary_ids)).delete(synchronize_session=False)
-
-    if trx_date:
-        q = db.query(SummaryRow).filter(SummaryRow.trx_date == trx_date)
-        if recon_pair_id is not None:
-            q = q.filter(SummaryRow.recon_pair_id == recon_pair_id)
-        q.delete(synchronize_session=False)
 
     db.query(FileReceipt).filter(FileReceipt.import_batch_id == import_id).delete(synchronize_session=False)
     db.delete(batch)

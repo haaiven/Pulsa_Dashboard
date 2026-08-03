@@ -93,8 +93,8 @@ export default function ImportPage() {
     try {
       await api.delete(`/import/${id}`);
       refreshAll();
-    } catch {
-      alert("Gagal menghapus batch.");
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Gagal menghapus batch.");
     } finally {
       setDeleting(null);
     }
