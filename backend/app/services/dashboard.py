@@ -101,7 +101,7 @@ def get_overview(db: Session, start_date=None, end_date=None, pair_id: int | Non
                 .first()
             )
             if source_b_file:
-                h1_date = latest_date + datetime.timedelta(days=1)
+                h1_date = latest_date - datetime.timedelta(days=1)
                 receipt = (
                     db.query(FileReceipt)
                     .filter(FileReceipt.expected_file_id == source_b_file.id, FileReceipt.file_date == h1_date)
