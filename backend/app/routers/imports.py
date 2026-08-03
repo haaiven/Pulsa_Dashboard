@@ -1,10 +1,7 @@
 import datetime
 import logging
 import os
-import queue
 import re
-import threading
-import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -39,91 +36,6 @@ def _parse_date_from_filename(filename: str) -> datetime.date | None:
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-_import_queue: queue.Queue = queue.Queue()
-_worker_started = False
-_worker_lock = threading.Lock()
-
-
-def _commit_with_retry(db: Session, max_retries: int = 5):
-    for attempt in range(max_retries):
-        try:
-            db.commit()
-            return
-        except Exception:
-            if attempt < max_retries - 1:
-                time.sleep(0.5 * (attempt + 1))
-                continue
-            raise
-
-
-def _worker():
-    while True:
-        try:
-            file_path, batch_id = _import_queue.get(timeout=5)
-        except queue.Empty:
-            continue
-        except Exception:
-            continue
-
-        db = SessionLocal()
-        try:
-            with open(file_path, "rb") as fh:
-                file_bytes = fh.read()
-
-            batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
-            if not batch:
-                _import_queue.task_done()
-                continue
-
-            logger.info(f"Worker processing: {batch.file_name}")
-
-            file_size = len(file_bytes)
-            trx_date = _parse_date_from_filename(batch.file_name)
-            ext = "." + batch.file_name.rsplit(".", 1)[-1].lower() if "." in batch.file_name else ""
-
-            if ext in IMAGE_EXTENSIONS:
-                process_image_file(file_bytes, batch.file_name, db, file_size, trx_date)
-            elif ext in EXCEL_EXTENSIONS:
-                expected_file, _ = match_expected_file(db, batch.file_name)
-                is_recon_file = batch.file_name.lower().startswith("recon_")
-                if expected_file and not is_recon_file:
-                    process_source_file(batch.file_name, db, file_bytes, file_size, trx_date)
-                else:
-                    recon_pair_id: int | None = None
-                    if expected_file and expected_file.recon_pair_id:
-                        recon_pair_id = expected_file.recon_pair_id
-                    else:
-                        pair = detect_recon_pair_from_name(db, batch.file_name)
-                        if pair:
-                            recon_pair_id = pair.id
-                    result_batch = process_excel_file(file_bytes, batch.file_name, db, recon_pair_id, file_size, trx_date)
-                    record_recon_upload(db, result_batch, batch.file_name)
-            elif ext in SOURCE_EXTENSIONS:
-                process_source_file(batch.file_name, db, file_bytes, file_size, trx_date)
-
-            logger.info(f"Worker completed: {batch.file_name}")
-
-        except Exception as e:
-            logger.exception(f"Worker failed for {batch_id}")
-        finally:
-            db.close()
-            _import_queue.task_done()
-            try:
-                os.remove(file_path)
-            except OSError:
-                pass
-
-
-def ensure_import_worker():
-    global _worker_started
-    if not _worker_started:
-        with _worker_lock:
-            if not _worker_started:
-                t = threading.Thread(target=_worker, daemon=True)
-                t.start()
-                _worker_started = True
-                logger.info("Import worker thread started")
-
 
 @router.post("/import/excel")
 async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -131,48 +43,21 @@ async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_d
         raise HTTPException(400, "No file provided")
 
     file_bytes = await file.read()
+    file_size = len(file_bytes)
+    trx_date = _parse_date_from_filename(file.filename)
     ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
 
     if ext not in IMAGE_EXTENSIONS | EXCEL_EXTENSIONS | SOURCE_EXTENSIONS:
         raise HTTPException(400, f"Unsupported file type: {ext}")
 
-    upload_id = uuid.uuid4().hex
-    file_path = os.path.join(UPLOAD_DIR, f"{upload_id}_{file.filename}")
-
-    with open(file_path, "wb") as fh:
-        fh.write(file_bytes)
-
-    batch_no = f"BATCH-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{upload_id[:6].upper()}"
-
-    batch = ImportBatch(
-        batch_no=batch_no,
-        file_name=file.filename,
-        status="PROCESSING",
-        records=0,
-        file_size=len(file_bytes),
-        trx_date=_parse_date_from_filename(file.filename),
-        upload_date=datetime.date.today(),
-        sheet_name="",
-    )
-    db.add(batch)
-    _commit_with_retry(db)
-    db.refresh(batch)
-
     try:
-        with open(file_path, "rb") as fh:
-            file_bytes = fh.read()
-
-        file_size = len(file_bytes)
-        trx_date = _parse_date_from_filename(file.filename)
-        ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-
         if ext in IMAGE_EXTENSIONS:
-            process_image_file(file_bytes, file.filename, db, file_size, trx_date)
+            result_batch = process_image_file(file_bytes, file.filename, db, file_size, trx_date)
         elif ext in EXCEL_EXTENSIONS:
             expected_file, _ = match_expected_file(db, file.filename)
             is_recon_file = file.filename.lower().startswith("recon_")
             if expected_file and not is_recon_file:
-                process_source_file(file.filename, db, file_bytes, file_size, trx_date)
+                result_batch = process_source_file(file.filename, db, file_bytes, file_size, trx_date)
             else:
                 recon_pair_id: int | None = None
                 if expected_file and expected_file.recon_pair_id:
@@ -184,27 +69,17 @@ async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_d
                 result_batch = process_excel_file(file_bytes, file.filename, db, recon_pair_id, file_size, trx_date)
                 record_recon_upload(db, result_batch, file.filename)
         elif ext in SOURCE_EXTENSIONS:
-            process_source_file(file.filename, db, file_bytes, file_size, trx_date)
-
-        batch = db.query(ImportBatch).filter(ImportBatch.id == batch.id).first()
-        if batch:
-            batch.status = "SUCCESS"
-            _commit_with_retry(db)
+            result_batch = process_source_file(file.filename, db, file_bytes, file_size, trx_date)
 
         return {
-            "batch_no": batch.batch_no,
-            "file_name": batch.file_name,
-            "records": batch.records,
-            "status": batch.status,
+            "batch_no": result_batch.batch_no,
+            "file_name": result_batch.file_name,
+            "records": result_batch.records,
+            "status": result_batch.status,
         }
     except Exception as e:
         logger.error(f"Import error: {e}")
         raise HTTPException(500, str(e))
-    finally:
-        try:
-            os.remove(file_path)
-        except OSError:
-            pass
 
 
 @router.get("/import/history", response_model=list[ImportBatchOut])
