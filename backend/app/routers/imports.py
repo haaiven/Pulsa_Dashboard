@@ -158,6 +158,7 @@ def delete_import(import_id: int, db: Session = Depends(get_db)):
         q.delete(synchronize_session=False)
 
     db.query(FileReceipt).filter(FileReceipt.import_batch_id == import_id).delete(synchronize_session=False)
+    db.expire(batch, ["file_receipts"])
     db.delete(batch)
     db.commit()
     return {"ok": True}
