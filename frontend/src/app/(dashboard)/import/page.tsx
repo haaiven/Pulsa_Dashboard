@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import type React from "react";
 import { format } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, AlertTriangle, CheckCircle, ChevronDown, Clock3, FileSpreadsheet, Image, Inbox, Loader2, RefreshCw, Trash2, Upload, X, XCircle } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle, ChevronDown, Clock3, FileSpreadsheet, Image, Inbox, Loader2, RefreshCw, Search, Trash2, Upload, X, XCircle } from "lucide-react";
 import api from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -43,6 +43,7 @@ export default function ImportPage() {
   const [pairStatus, setPairStatus] = useState("ALL");
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [showMissingPopup, setShowMissingPopup] = useState(false);
+  const [historySearch, setHistorySearch] = useState("");
 
   const { data: pairs = [] } = useQuery<ReconPair[]>({ queryKey: ["recon-pairs"], queryFn: async () => (await api.get("/recon-pairs")).data });
   const { data: monitoring, isLoading: monitoringLoading } = useQuery({
@@ -55,6 +56,17 @@ export default function ImportPage() {
     } })).data,
   });
   const { data: history, isLoading: historyLoading } = useQuery({ queryKey: ["import-history"], queryFn: async () => (await api.get("/import/history")).data });
+
+  const filteredHistory = useMemo(() => {
+    if (!history) return [];
+    if (!historySearch.trim()) return history;
+    const q = historySearch.toLowerCase();
+    return history.filter((row: any) =>
+      row.file_name?.toLowerCase().includes(q) ||
+      row.batch_no?.toLowerCase().includes(q) ||
+      row.pair_name?.toLowerCase().includes(q)
+    );
+  }, [history, historySearch]);
 
   const categories = useMemo(() => {
     const cats = Array.from(new Set(pairs.map((pair) => pair.category)));
@@ -222,7 +234,7 @@ export default function ImportPage() {
         <Card className="border-slate-200 bg-white shadow-sm"><CardHeader><CardTitle className="text-sm font-semibold text-slate-950">Operational Alerts</CardTitle></CardHeader><CardContent className="space-y-4"><div className="rounded-3xl bg-red-50 p-5 text-red-800 ring-1 ring-red-200"><div className="flex items-center gap-2"><AlertTriangle size={20} /><p className="text-sm font-bold uppercase tracking-wide">Perhatian</p></div><p className="mt-3 text-2xl font-bold">{summary.total_missing || 0} missing · {summary.total_failed || 0} failed</p><p className="mt-2 text-sm leading-5 text-red-600">{summary.ready_pairs || 0}/{summary.total_pairs || 0} pairs siap · {summary.total_pairs - summary.ready_pairs || 0} pair belum lengkap</p></div><div className="rounded-2xl border border-slate-200 p-4"><p className="text-xs text-slate-500">Latest Import</p><p className="mt-1 truncate text-sm font-bold text-slate-950">{history?.[0]?.file_name || "-"}</p></div></CardContent></Card>
       </div>
 
-      <Card className="overflow-hidden border-slate-200 bg-white shadow-sm"><CardHeader className="border-b border-slate-100"><CardTitle className="text-base font-bold text-slate-950">Import History</CardTitle><p className="text-sm text-slate-500">Riwayat batch file yang sudah diterima sistem.</p></CardHeader><CardContent className="p-0">{historyLoading ? <div className="flex items-center justify-center gap-2 p-10 text-slate-500"><Loader2 size={18} className="animate-spin" /> Loading history...</div> : <div className="overflow-auto"><Table><TableHeader><TableRow className="bg-slate-50"><TableHead>Date Uploaded</TableHead><TableHead>Date Trx</TableHead><TableHead>File Name</TableHead><TableHead className="text-right">File Size</TableHead><TableHead className="text-right">Rows</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{(history || []).map((row: any) => <TableRow key={row.id} className="hover:bg-slate-50/80"><TableCell className="text-xs text-slate-500">{new Date(row.created_at).toLocaleDateString("id-ID")}</TableCell><TableCell className="text-xs text-slate-600">{row.trx_date || "-"}</TableCell><TableCell><span className="font-medium text-slate-900">{row.file_name}</span></TableCell><TableCell className="text-right font-mono text-xs text-slate-600">{row.file_size ? formatBytes(row.file_size) : "-"}</TableCell><TableCell className="text-right font-semibold tabular-nums">{row.records}</TableCell><TableCell><StatusBadge status={row.status} /></TableCell><TableCell className="text-right"><button onClick={() => handleDelete(row.id)} disabled={deleting === row.id} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50"><Trash2 size={15} /></button></TableCell></TableRow>)}{(!history || history.length === 0) && <TableRow><TableCell colSpan={7} className="py-12 text-center text-slate-400">No imports yet</TableCell></TableRow>}</TableBody></Table></div>}</CardContent></Card>
+      <Card className="overflow-hidden border-slate-200 bg-white shadow-sm"><CardHeader className="border-b border-slate-100"><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle className="text-base font-bold text-slate-950">Import History</CardTitle><p className="text-sm text-slate-500">Riwayat batch file yang sudah diterima sistem.</p></div><div className="relative"><input type="text" placeholder="Search file..." value={historySearch} onChange={(e) => setHistorySearch(e.target.value)} className="h-9 w-56 rounded-xl border border-slate-200 pl-9 pr-3 text-xs shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" /><Search size={14} className="absolute left-3 top-2.5 text-slate-400" /></div></div></CardHeader><CardContent className="p-0">{historyLoading ? <div className="flex items-center justify-center gap-2 p-10 text-slate-500"><Loader2 size={18} className="animate-spin" /> Loading history...</div> : <div className="overflow-auto"><Table><TableHeader><TableRow className="bg-slate-50"><TableHead>Date Uploaded</TableHead><TableHead>Date Trx</TableHead><TableHead>File Name</TableHead><TableHead className="text-right">File Size</TableHead><TableHead className="text-right">Rows</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{(filteredHistory || []).map((row: any) => <TableRow key={row.id} className="hover:bg-slate-50/80"><TableCell className="text-xs text-slate-500">{new Date(row.created_at).toLocaleDateString("id-ID")}</TableCell><TableCell className="text-xs text-slate-600">{row.trx_date || "-"}</TableCell><TableCell><span className="font-medium text-slate-900">{row.file_name}</span></TableCell><TableCell className="text-right font-mono text-xs text-slate-600">{row.file_size ? formatBytes(row.file_size) : "-"}</TableCell><TableCell className="text-right font-semibold tabular-nums">{row.records}</TableCell><TableCell><StatusBadge status={row.status} /></TableCell><TableCell className="text-right"><button onClick={() => handleDelete(row.id)} disabled={deleting === row.id} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50"><Trash2 size={15} /></button></TableCell></TableRow>)}{(!filteredHistory || filteredHistory.length === 0) && <TableRow><TableCell colSpan={7} className="py-12 text-center text-slate-400">No imports yet</TableCell></TableRow>}</TableBody></Table></div>}</CardContent></Card>
     </div>
   );
 }

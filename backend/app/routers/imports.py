@@ -134,6 +134,29 @@ def delete_import(import_id: int, db: Session = Depends(get_db)):
     if not batch:
         raise HTTPException(404, "Import batch not found")
 
+    trx_date = batch.trx_date
+    recon_pair_id = None
+    if batch.file_receipts:
+        for receipt in batch.file_receipts:
+            if receipt.recon_pair_id:
+                recon_pair_id = receipt.recon_pair_id
+                break
+
+    if trx_date:
+        ds_q = db.query(DailySummary).filter(DailySummary.trx_date == trx_date)
+        if recon_pair_id is not None:
+            ds_q = ds_q.filter(DailySummary.recon_pair_id == recon_pair_id)
+        daily_summary_ids = [row.id for row in ds_q.all()]
+        if daily_summary_ids:
+            db.query(ExceptionDetail).filter(ExceptionDetail.daily_summary_id.in_(daily_summary_ids)).delete(synchronize_session=False)
+            db.query(ReconResult).filter(ReconResult.daily_summary_id.in_(daily_summary_ids)).delete(synchronize_session=False)
+            db.query(DailySummary).filter(DailySummary.id.in_(daily_summary_ids)).delete(synchronize_session=False)
+
+        q = db.query(SummaryRow).filter(SummaryRow.trx_date == trx_date)
+        if recon_pair_id is not None:
+            q = q.filter(SummaryRow.recon_pair_id == recon_pair_id)
+        q.delete(synchronize_session=False)
+
     db.query(FileReceipt).filter(FileReceipt.import_batch_id == import_id).delete(synchronize_session=False)
     db.delete(batch)
     db.commit()
