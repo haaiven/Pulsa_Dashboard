@@ -36,10 +36,11 @@ const mainItems = [
     disabled: false,
   },
   {
+    href: "/settlement",
     label: "Settlement",
     description: "Settlement Monitoring",
     icon: WalletCards,
-    disabled: true,
+    disabled: false,
   },
   {
     label: "Allocating",
