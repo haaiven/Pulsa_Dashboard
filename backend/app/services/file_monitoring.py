@@ -280,7 +280,8 @@ def get_file_monitoring(
     pairs = pairs_q.order_by(ReconPair.category, ReconPair.pair_name).all()
     receipts_q = db.query(FileReceipt).filter(FileReceipt.status == "RECEIVED")
     if file_date:
-        receipts_q = receipts_q.filter(FileReceipt.file_date == file_date)
+        h1_date = file_date + datetime.timedelta(days=1)
+        receipts_q = receipts_q.filter(FileReceipt.file_date.in_([file_date, h1_date]))
     receipts = receipts_q.order_by(FileReceipt.created_at.desc()).all()
 
     latest_by_expected: dict[int, FileReceipt] = {}
